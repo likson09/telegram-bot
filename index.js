@@ -1,9 +1,50 @@
-// index.js
 const { Telegraf } = require('telegraf');
 const { google } = require('googleapis');
 const fs = require('fs');
 const { session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
+const express = require('express');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Environment variables
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+
+// Health check endpoint
+app.get('/', (req, res) => {
+    res.json({ 
+        status: 'Bot is running', 
+        timestamp: new Date(),
+        service: 'Telegram Statistics Bot'
+    });
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'OK', 
+        bot: 'running',
+        time: new Date().toISOString()
+    });
+});
+
+app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+});
+
+// Validate environment variables
+if (!BOT_TOKEN) {
+    console.error('ERROR: BOT_TOKEN environment variable is required');
+    process.exit(1);
+}
+
+if (!SPREADSHEET_ID) {
+    console.error('ERROR: SPREADSHEET_ID environment variable is required');
+    process.exit(1);
+}
+
+console.log('Environment variables loaded successfully');
 
 // Функция для нормализации строк (замена Ё на Е)
 function normalizeString(str) {
@@ -21,7 +62,7 @@ function validateFIO(fio) {
     
     // Проверяем количество частей
     if (parts.length !== 3) {
-        console.log('Ошибка: Неверное количество части ФИО');
+        console.log('Ошибка: Неверное количество частей ФИО');
         return false;
     }
     
@@ -43,16 +84,6 @@ function validateFIO(fio) {
     }
     
     return true;
-}
-
-// Настройки бота
-const BOT_TOKEN = process.env.BOT_TOKEN || '8451305555:AAGIs89Hzl4UKidFRVHeiQaaj2Qs0STtJxI';
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1s1MZLWFcWZ2mkZJOECJ07KkZ9ETpODvcuQ9xGvVRLoQ';
-
-// Добавьте проверку
-if (!BOT_TOKEN) {
-    console.error('ERROR: BOT_TOKEN is required');
-    process.exit(1);
 }
 
 // Инициализация бота с расширенными сессиями
@@ -89,6 +120,31 @@ function createBackButton(shortFio, userId) {
     ];
 }
 
+// Функция для безопасного редактирования сообщений
+async function safeEditMessage(ctx, text, markup = null) {
+    try {
+        if (markup) {
+            await ctx.editMessageText(text, { 
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: markup }
+            });
+        } else {
+            await ctx.editMessageText(text, { parse_mode: 'Markdown' });
+        }
+    } catch (error) {
+        if (error.description === 'Bad Request: message is not modified') {
+            // Сообщение не изменилось - это нормально
+            return;
+        }
+        console.error('Ошибка редактирования сообщения:', error);
+        // fallback - отправляем новое сообщение
+        await ctx.reply(text, { 
+            parse_mode: 'Markdown',
+            reply_markup: markup ? { inline_keyboard: markup } : undefined
+        });
+    }
+}
+
 // Команда /start
 bot.start(async (ctx) => {
     console.log('Получена команда /start');
@@ -104,14 +160,25 @@ async function safeConnectToSheet() {
     try {
         console.log('Пытаемся подключиться к Google Sheets');
 
-        const credentialsPath = '/home/jurij_belkin/telegram-bot/credentials.json';
-
-        if (!fs.existsSync(credentialsPath)) {
-            throw new Error('Файл credentials.json не найден');
+        // Для Render - используем переменные окружения или base64
+        let credentials;
+        
+        if (process.env.GOOGLE_CREDENTIALS_BASE64) {
+            // Для Production: credentials из переменной окружения
+            const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
+            const credentialsJson = Buffer.from(credentialsBase64, 'base64').toString('utf-8');
+            credentials = JSON.parse(credentialsJson);
+        } else {
+            // Для Development: читаем из файла
+            const credentialsPath = './credentials.json';
+            if (!fs.existsSync(credentialsPath)) {
+                throw new Error('Файл credentials.json не найден');
+            }
+            credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
         }
 
         const auth = new google.auth.GoogleAuth({
-            keyFile: credentialsPath,
+            credentials: credentials,
             scopes: 'https://www.googleapis.com/auth/spreadsheets.readonly'
         });
         
@@ -134,6 +201,8 @@ bot.on('text', async (ctx) => {
 
     let fio = ctx.message.text.trim().replace(/\s+/g, ' ').replace(/[^А-ЯЁа-яё\s]/g, '');
     
+    console.log('Полученная строка ФИО:', fio);
+    
     try {
         if (!validateFIO(fio)) {
             await ctx.reply('Некорректный формат ФИО. Отправьте в формате: Фамилия Имя Отчество');
@@ -147,12 +216,9 @@ bot.on('text', async (ctx) => {
         const shortFio = `${lastName.slice(0, 3)}${firstName.slice(0, 3)}${patronymic.slice(0, 3)}`;
         const userId = ctx.from.id;
         
-        // Сохраняем ID сообщения для последующего редактирования
-        const menuMessage = await ctx.reply('Выберите раздел:', {
+        await ctx.reply('Выберите раздел:', {
             reply_markup: { inline_keyboard: createMainMenu(shortFio, userId) }
         });
-        
-        ctx.session.menuMessageId = menuMessage.message_id;
         
     } catch (error) {
         console.error('Ошибка при обработке запроса:', error);
@@ -167,10 +233,7 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
         const fullFio = ctx.session?.fullFio;
         
         if (action === 'back') {
-            // Возврат в главное меню - редактируем сообщение
-            await ctx.editMessageText('Выберите раздел:', {
-                reply_markup: { inline_keyboard: createMainMenu(shortFio, userId) }
-            });
+            await safeEditMessage(ctx, 'Выберите раздел:', createMainMenu(shortFio, userId));
             await ctx.answerCbQuery();
             return;
         }
@@ -185,19 +248,14 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
             case 'e':
                 try {
                     const errorCount = await getErrorCount(fullFio);
-                    await ctx.editMessageText(`Количество ошибок для ${fullFio}: ${errorCount}`, {
-                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
-                    });
+                    await safeEditMessage(ctx, `Количество ошибок для ${fullFio}: ${errorCount}`, createBackButton(shortFio, userId));
                 } catch (error) {
                     console.error('Ошибка при получении ошибок:', error);
-                    await ctx.editMessageText('Не удалось получить данные об ошибках.', {
-                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
-                    });
+                    await safeEditMessage(ctx, 'Не удалось получить данные об ошибках.', createBackButton(shortFio, userId));
                 }
                 break;
                 
             case 'p':
-                // Показываем выбор месяца - редактируем сообщение
                 const currentYear = new Date().getFullYear();
                 const currentMonth = new Date().getMonth();
                 
@@ -220,15 +278,13 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
                     callback_data: `back_${shortFio}_${userId}` 
                 }]);
                 
-                await ctx.editMessageText('📅 Выберите месяц:', {
-                    reply_markup: { inline_keyboard: monthKeyboard }
-                });
+                await safeEditMessage(ctx, '📅 Выберите месяц:', monthKeyboard);
                 break;
                 
             case 't':
                 try {
                     const shiftData = await getShiftData(fullFio);
-                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts;
+                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + shiftData.reinforcementShifts;
                     const attendanceRate = shiftData.plannedShifts > 0 
                         ? (totalWorked / shiftData.plannedShifts) * 100 
                         : 0;
@@ -241,14 +297,10 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
                         `✅ Всего отработано: ${totalWorked} смен\n` +
                         `📈 Посещаемость: ${attendanceRate.toFixed(2)}%`;
 
-                    await ctx.editMessageText(message, {
-                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
-                    });
+                    await safeEditMessage(ctx, message, createBackButton(shortFio, userId));
                 } catch (error) {
                     console.error('Ошибка при получении данных табеля:', error);
-                    await ctx.editMessageText('Не удалось получить данные табеля.', {
-                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
-                    });
+                    await safeEditMessage(ctx, 'Не удалось получить данные табеля.', createBackButton(shortFio, userId));
                 }
                 break;
         }
@@ -282,7 +334,6 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
         const selectionData = await getSelectionData(fullFio, parseInt(year), monthNumber);
         const placementData = await getPlacementData(fullFio, parseInt(year), monthNumber);
 
-        // Рассчитываем итоги
         let totalRmSelection = 0;
         let totalOsSelection = 0;
         let totalRmPlacement = 0;
@@ -293,54 +344,39 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
             if (selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0 ||
                 placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0) {
                 daysWithData++;
-                totalRmSelection += selectionData[`rm_day_${day}`];
-                totalOsSelection += selectionData[`os_day_${day}`];
-                totalRmPlacement += placementData[`rm_day_${day}`];
-                totalOsPlacement += placementData[`os_day_${day}`];
+                totalOsSelection += selectionData[`rm_day_${day}`];
+                totalRmSelection += selectionData[`os_day_${day}`];
+                totalOsPlacement += placementData[`rm_day_${day}`];
+                totalRmPlacement += placementData[`os_day_${day}`];
             }
         }
 
-        // Сохраняем данные в сессии для детализации
-        ctx.session.currentData = {
-            selectionData,
-            placementData,
-            month: monthNumber,
-            year: parseInt(year),
-            fullFio
-        };
+        ctx.session.currentData = { selectionData, placementData, month: monthNumber, year: parseInt(year), fullFio };
 
-        // Формируем сообщение с общей статистикой
         let message = `📊 *СТАТИСТИКА ПРОИЗВОДИТЕЛЬНОСТИ*\n`;
         message += `👤 *${fullFio}*\n`;
         message += `📅 *${monthName} ${year}*\n\n`;
 
         message += `📦 *ОТБОР ТОВАРА*\n`;
-        message += `├ ОС: ${totalRmSelection} ед.\n`;
-        message += `└ РМ: ${totalOsSelection} ед.\n\n`;
+        message += `├ РМ: ${totalRmSelection} ед.\n`;
+        message += `└ ОС: ${totalOsSelection} ед.\n\n`;
 
         message += `📋 *РАЗМЕЩЕНИЕ ТОВАРА*\n`;
-        message += `├ ОС: ${totalRmPlacement} ед.\n`;
-        message += `└ РМ: ${totalOsPlacement} ед.\n\n`;
+        message += `├ РМ: ${totalRmPlacement} ед.\n`;
+        message += `└ ОС: ${totalOsPlacement} ед.\n\n`;
 
         message += `📈 *ОБЩАЯ СТАТИСТИКА*\n`;
         message += `├ Дней с данными: ${daysWithData}\n`;
         message += `├ Средний отбор/день: ${daysWithData > 0 ? Math.round((totalRmSelection + totalOsSelection)/daysWithData) : 0} ед.\n`;
         message += `└ Среднее размещение/день: ${daysWithData > 0 ? Math.round((totalRmPlacement + totalOsPlacement)/daysWithData) : 0} ед.\n`;
 
-        ctx.session.currentData = { selectionData, placementData, month: monthNumber, year: parseInt(year), fullFio };
-
-        // Кнопки для детализации и возврата
         const detailKeyboard = [
             [{ text: '📋 Детализировать по дням', callback_data: `detail_${month}_${year}_${shortFio}` }],
             [{ text: '↩️ Выбрать другой месяц', callback_data: `p_${shortFio}_${userId}` }],
             [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
         ];
 
-        await ctx.editMessageText(message, { 
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: detailKeyboard }
-        });
-
+        await safeEditMessage(ctx, message, detailKeyboard);
         await ctx.answerCbQuery();
         
     } catch (error) {
@@ -364,7 +400,9 @@ bot.action(/^detail_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
         const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
-        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n👤 ${fullFio}\n📅 ${monthNames[month-1]} ${year}\n\n`;
+        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n`;
+        message += `👤 ${fullFio}\n`;
+        message += `📅 ${monthNames[month-1]} ${year}\n\n`;
 
         let hasData = false;
         
@@ -378,15 +416,15 @@ bot.action(/^detail_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
                 
                 if (hasSelection) {
                     message += `📦 Отбор: `;
-                    if (selectionData[`rm_day_${day}`] > 0) message += `ОС=${selectionData[`rm_day_${day}`]} `;
-                    if (selectionData[`os_day_${day}`] > 0) message += `РМ=${selectionData[`os_day_${day}`]}`;
+                    if (selectionData[`rm_day_${day}`] > 0) message += `РМ=${selectionData[`rm_day_${day}`]} `;
+                    if (selectionData[`os_day_${day}`] > 0) message += `ОС=${selectionData[`os_day_${day}`]}`;
                     message += `\n`;
                 }
                 
                 if (hasPlacement) {
                     message += `📋 Размещение: `;
-                    if (placementData[`rm_day_${day}`] > 0) message += `ОС=${placementData[`rm_day_${day}`]} `;
-                    if (placementData[`os_day_${day}`] > 0) message += `РМ=${placementData[`os_day_${day}`]}`;
+                    if (placementData[`rm_day_${day}`] > 0) message += `РМ=${placementData[`rm_day_${day}`]} `;
+                    if (placementData[`os_day_${day}`] > 0) message += `ОС=${placementData[`os_day_${day}`]}`;
                     message += `\n`;
                 }
                 message += `\n`;
@@ -397,42 +435,17 @@ bot.action(/^detail_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
             message += `Нет данных за выбранный период\n`;
         }
 
-        // Кнопки возврата
         const backKeyboard = [
-            [
-                { 
-                    text: '↩️ Назад к общей статистике', 
-                    callback_data: `month_${month-1}_${year}_${ctx.match[3]}` 
-                }
-            ],
-            [
-                { 
-                    text: '↩️ Назад в меню', 
-                    callback_data: `back_${ctx.match[3]}_${userId}` 
-                }
-            ]
+            [{ text: '↩️ Назад к общей статистике', callback_data: `month_${month-1}_${year}_${ctx.match[3]}` }],
+            [{ text: '↩️ Назад в меню', callback_data: `back_${ctx.match[3]}_${userId}` }]
         ];
 
-        await ctx.editMessageText(message, { 
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: backKeyboard }
-        });
-
+        await safeEditMessage(ctx, message, backKeyboard);
         await ctx.answerCbQuery();
         
     } catch (error) {
         console.error('Ошибка при детализации:', error);
         await ctx.answerCbQuery('Ошибка детализации');
-    }
-});
-
-// Глобальная обработка ошибок
-bot.catch(async (error, ctx) => {
-    console.error('Произошла ошибка в боте:', error);
-    try {
-        await ctx.reply('Произошла непредвиденная ошибка. Попробуйте позже.');
-    } catch (err) {
-        console.error('Не удалось отправить сообщение об ошибке:', err);
     }
 });
 
@@ -459,7 +472,6 @@ async function getErrorCount(fio) {
 async function getSelectionData(fio, year, month) {
     try {
         const sheets = await safeConnectToSheet();
-        
         const range = `Отбор!A:D`;
         
         const result = await sheets.spreadsheets.values.get({
@@ -508,7 +520,6 @@ async function getSelectionData(fio, year, month) {
 async function getPlacementData(fio, year, month) {
     try {
         const sheets = await safeConnectToSheet();
-        
         const range = `Размещение!A:D`;
         
         const result = await sheets.spreadsheets.values.get({
@@ -557,7 +568,6 @@ async function getPlacementData(fio, year, month) {
 async function getShiftData(fio) {
     try {
         const sheets = await safeConnectToSheet();
-        
         const result = await sheets.spreadsheets.values.get({
             spreadsheetId: SPREADSHEET_ID,
             range: 'Табель!A:Z'
@@ -595,57 +605,26 @@ async function getShiftData(fio) {
     }
 }
 
-// Запуск бота
-bot.launch()
-    .then(() => {
-        console.log('Бот запущен успешно!');
-    })
-    .catch((error) => {
-        console.error('Ошибка при запуске бота:', error);
-        process.exit(1);
-    });
-
-// Обработка прерывания процесса
-process.on('SIGINT', async () => {
-    console.log('Остановка бота...');
+// Глобальная обработка ошибок
+bot.catch(async (error, ctx) => {
+    console.error('Произошла ошибка в боте:', error);
     try {
-        await bot.stop('SIGINT');
-        console.log('Бот остановлен.');
-    } catch (error) {
-        console.error('Ошибка при остановке бота:', error);
+        await ctx.reply('Произошла непредвиденная ошибка. Попробуйте позже.');
+    } catch (err) {
+        console.error('Не удалось отправить сообщение об ошибке:', err);
     }
-    process.exit(0);
 });
 
-process.on('SIGTERM', async () => {
-    console.log('Остановка бота...');
-    try {
-        await bot.stop('SIGTERM');
-        console.log('Бот остановлен.');
-    } catch (error) {
-        console.error('Ошибка при остановке бота:', error);
-    }
-    process.exit(0);
-});
-
-// Добавьте в самый конец файла:
-const PORT = process.env.PORT || 3000;
-
-// Для Render нужно "слушать" порт
-const express = require('express');
-const app = express();
-
-app.get('/', (req, res) => {
-  res.send('Telegram Bot is running!');
-});
-
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-
-// Ваш запуск бота
+// Запуск бота с обработкой ошибок
 bot.launch().then(() => {
-  console.log('Бот запущен успешно!');
+    console.log('Telegram бот запущен успешно!');
 }).catch((error) => {
-  console.error('Ошибка при запуске бота:', error);
+    console.error('Ошибка при запуске бота:', error);
+    process.exit(1);
 });
+
+// Graceful shutdown
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+console.log('Application started successfully');
