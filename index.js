@@ -13,6 +13,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
 // Health check endpoint
+app.use(express.json());
 app.get('/', (req, res) => {
     res.json({ 
         status: 'Bot is running', 
@@ -133,11 +134,9 @@ async function safeEditMessage(ctx, text, markup = null) {
         }
     } catch (error) {
         if (error.description === 'Bad Request: message is not modified') {
-            // Сообщение не изменилось - это нормально
             return;
         }
         console.error('Ошибка редактирования сообщения:', error);
-        // fallback - отправляем новое сообщение
         await ctx.reply(text, { 
             parse_mode: 'Markdown',
             reply_markup: markup ? { inline_keyboard: markup } : undefined
@@ -160,16 +159,13 @@ async function safeConnectToSheet() {
     try {
         console.log('Пытаемся подключиться к Google Sheets');
 
-        // Для Render - используем переменные окружения или base64
         let credentials;
         
         if (process.env.GOOGLE_CREDENTIALS_BASE64) {
-            // Для Production: credentials из переменной окружения
             const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
             const credentialsJson = Buffer.from(credentialsBase64, 'base64').toString('utf-8');
             credentials = JSON.parse(credentialsJson);
         } else {
-            // Для Development: читаем из файла
             const credentialsPath = './credentials.json';
             if (!fs.existsSync(credentialsPath)) {
                 throw new Error('Файл credentials.json не найден');
@@ -284,7 +280,7 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
             case 't':
                 try {
                     const shiftData = await getShiftData(fullFio);
-                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + shiftData.reinforcementShifts;
+                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts;
                     const attendanceRate = shiftData.plannedShifts > 0 
                         ? (totalWorked / shiftData.plannedShifts) * 100 
                         : 0;
@@ -344,10 +340,10 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
             if (selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0 ||
                 placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0) {
                 daysWithData++;
-                totalOsSelection += selectionData[`rm_day_${day}`];
-                totalRmSelection += selectionData[`os_day_${day}`];
-                totalOsPlacement += placementData[`rm_day_${day}`];
-                totalRmPlacement += placementData[`os_day_${day}`];
+                totalRmSelection += selectionData[`rm_day_${day}`];
+                totalOsSelection += selectionData[`os_day_${day}`];
+                totalRmPlacement += placementData[`rm_day_${day}`];
+                totalOsPlacement += placementData[`os_day_${day}`];
             }
         }
 
@@ -502,8 +498,8 @@ async function getSelectionData(fio, year, month) {
         
         filteredData.forEach(row => {
             const day = new Date(row[1]).getDate();
-            const rm = parseFloat(row[2]) || 0;
-            const os = parseFloat(row[3]) || 0;
+            const rm = parseFloat(row[3]) || 0;
+            const os = parseFloat(row[2]) || 0;
             
             data[`rm_day_${day}`] = rm;
             data[`os_day_${day}`] = os;
@@ -550,8 +546,8 @@ async function getPlacementData(fio, year, month) {
         
         filteredData.forEach(row => {
             const day = new Date(row[1]).getDate();
-            const rm = parseFloat(row[2]) || 0;
-            const os = parseFloat(row[3]) || 0;
+            const rm = parseFloat(row[3]) || 0;
+            const os = parseFloat(row[2]) || 0;
             
             data[`rm_day_${day}`] = rm;
             data[`os_day_${day}`] = os;
@@ -615,13 +611,46 @@ bot.catch(async (error, ctx) => {
     }
 });
 
-// Запуск бота с обработкой ошибок
-bot.launch().then(() => {
-    console.log('Telegram бот запущен успешно!');
-}).catch((error) => {
-    console.error('Ошибка при запуске бота:', error);
-    process.exit(1);
-});
+// Принудительная очистка предыдущих сессий перед запуском
+async function cleanupBeforeStart() {
+    try {
+        console.log('Очистка предыдущих сессий...');
+        // Делаем dummy запрос чтобы сбросить старые updates
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMe`);
+    } catch (error) {
+        console.log('Очистка не требуется');
+    }
+}
+
+// Запуск бота с обработкой конфликтов
+async function startBot() {
+    try {
+        await cleanupBeforeStart();
+        
+        await bot.launch({
+            dropPendingUpdates: true,
+            allowedUpdates: [],
+            polling: {
+                params: {
+                    timeout: 30,
+                    limit: 100,
+                    offset: Math.floor(Math.random() * 1000)
+                }
+            }
+        });
+        
+        console.log('Telegram бот запущен успешно!');
+    } catch (error) {
+        console.error('Ошибка при запуске бота:', error);
+        if (error.response?.error_code === 409) {
+            console.log('Обнаружена конфликтная сессия, попробуйте позже');
+        }
+        process.exit(1);
+    }
+}
+
+// Запускаем бота
+startBot();
 
 // Graceful shutdown
 process.once('SIGINT', () => bot.stop('SIGINT'));
