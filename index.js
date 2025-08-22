@@ -157,25 +157,23 @@ bot.start(async (ctx) => {
 // Подключение к Google Sheets
 async function safeConnectToSheet() {
     try {
-        console.log('Пытаемся подключиться к Google Sheets');
+        console.log('Подключение к Google Sheets...');
 
-        let credentials;
-        
-        if (process.env.GOOGLE_CREDENTIALS_BASE64) {
-            const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
-            const credentialsJson = Buffer.from(credentialsBase64, 'base64').toString('utf-8');
-            credentials = JSON.parse(credentialsJson);
-        } else {
-            const credentialsPath = './credentials.json';
-            if (!fs.existsSync(credentialsPath)) {
-                throw new Error('Файл credentials.json не найден');
-            }
-            credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+        if (!process.env.GOOGLE_CREDENTIALS_BASE64) {
+            throw new Error('GOOGLE_CREDENTIALS_BASE64 environment variable is required');
         }
+
+        // Декодируем credentials из base64
+        const credentialsBase64 = process.env.GOOGLE_CREDENTIALS_BASE64;
+        const credentialsJson = Buffer.from(credentialsBase64, 'base64').toString('utf-8');
+        const credentials = JSON.parse(credentialsJson);
 
         const auth = new google.auth.GoogleAuth({
             credentials: credentials,
-            scopes: 'https://www.googleapis.com/auth/spreadsheets.readonly'
+            scopes: [
+                'https://www.googleapis.com/auth/spreadsheets.readonly',
+                'https://www.googleapis.com/auth/drive.readonly'
+            ]
         });
         
         const client = await auth.getClient();
@@ -185,7 +183,7 @@ async function safeConnectToSheet() {
         return sheets;
     } catch (error) {
         console.error('Ошибка при подключении к Google Sheets:', error);
-        throw new Error('Не удалось подключиться к таблице');
+        throw new Error('Не удалось подключиться к таблице: ' + error.message);
     }
 }
 
