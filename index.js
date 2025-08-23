@@ -8,9 +8,10 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Environment variables
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+// ⚠️ ЗАШИТЫЕ ДАННЫЕ НАПРЯМУЮ В КОД
+const BOT_TOKEN = '8451305555:AAGIs89Hzl4UKidFRVHeiQaaj2Qs0STtJxI';
+const SPREADSHEET_ID = '1s1MZLWFcWZ2mkZJOECJ07KkZ9ETpODvcuQ9xGvVRLoQ';
+const GOOGLE_API_KEY = 'AIzaSyDsWqoKK6X0PDY9Rm6yzgmhOn0ERoeTwh0'; // Замените на ваш ключ
 
 // Health check endpoint
 app.use(express.json());
@@ -33,19 +34,6 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
-
-// Validate environment variables
-if (!BOT_TOKEN) {
-    console.error('ERROR: BOT_TOKEN environment variable is required');
-    process.exit(1);
-}
-
-if (!SPREADSHEET_ID) {
-    console.error('ERROR: SPREADSHEET_ID environment variable is required');
-    process.exit(1);
-}
-
-console.log('Environment variables loaded successfully');
 
 // Функция для нормализации строк (замена Ё на Е)
 function normalizeString(str) {
@@ -154,69 +142,26 @@ bot.start(async (ctx) => {
     }
 });
 
-// Mock данные для тестирования
-function createMockSheets() {
-    return {
-        spreadsheets: {
-            values: {
-                get: async (params) => {
-                    console.log('Mock запрос к Google Sheets:', params.range);
-                    return { data: { values: [] } };
-                }
-            },
-            get: async (params) => {
-                console.log('Mock запрос информации о таблице');
-                return { data: { properties: { title: 'Mock Table' } } };
-            }
-        }
-    };
-}
-
-
-function createEmptyDailyData() {
-    const data = {};
-    for (let day = 1; day <= 31; day++) {
-        data[`rm_day_${day}`] = 0;
-        data[`os_day_${day}`] = 0;
-    }
-    return data;
-}
-
 // Подключение к Google Sheets
 async function safeConnectToSheet() {
     try {
         console.log('Подключение к Google Sheets...');
 
-        const API_KEY = process.env.GOOGLE_API_KEY;
-        
-        if (!API_KEY) {
-            console.log('API ключ не найден, используем mock данные');
-            return createMockSheets();
+        if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'ваш_google_api_ключ_здесь') {
+            throw new Error('Google API ключ не настроен');
         }
 
         // Прямое создание клиента с API ключом
         const sheets = google.sheets({
             version: 'v4',
-            auth: API_KEY
+            auth: GOOGLE_API_KEY
         });
-
-        // Проверяем подключение
-        try {
-            const test = await sheets.spreadsheets.get({
-                spreadsheetId: SPREADSHEET_ID,
-                fields: 'properties.title'
-            });
-            console.log('Успешное подключение к таблице:', test.data.properties.title);
-        } catch (testError) {
-            console.log('Таблица недоступна, используем mock данные');
-            return createMockSheets();
-        }
 
         return sheets;
         
     } catch (error) {
         console.error('Ошибка при подключении к Google Sheets:', error.message);
-        return createMockSheets();
+        throw new Error('Не удалось подключиться к Google Sheets');
     }
 }
 
@@ -278,7 +223,7 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
                     await safeEditMessage(ctx, `Количество ошибок для ${fullFio}: ${errorCount}`, createBackButton(shortFio, userId));
                 } catch (error) {
                     console.error('Ошибка при получении ошибок:', error);
-                    await safeEditMessage(ctx, 'Не удалось получить данные об ошибках.', createBackButton(shortFio, userId));
+                    await ctx.reply('Не удалось получить данные об ошибках. Попробуйте позже.');
                 }
                 break;
                 
@@ -311,7 +256,7 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
             case 't':
                 try {
                     const shiftData = await getShiftData(fullFio);
-                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + shiftData.reinforcementShifts;
+                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts;
                     const attendanceRate = shiftData.plannedShifts > 0 
                         ? (totalWorked / shiftData.plannedShifts) * 100 
                         : 0;
@@ -327,7 +272,7 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
                     await safeEditMessage(ctx, message, createBackButton(shortFio, userId));
                 } catch (error) {
                     console.error('Ошибка при получении данных табеля:', error);
-                    await safeEditMessage(ctx, 'Не удалось получить данные табеля.', createBackButton(shortFio, userId));
+                    await ctx.reply('Не удалось получить данные табеля. Попробуйте позже.');
                 }
                 break;
         }
@@ -386,12 +331,12 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
 
         // ПОМЕНЯЛИ РМ и ОС МЕСТАМИ!
         message += `📦 *ОТБОР ТОВАРА*\n`;
-        message += `├ ОС: ${totalOsSelection} ед.\n`;  // Было РМ, стало ОС
-        message += `└ РМ: ${totalRmSelection} ед.\n\n`; // Было ОС, стало РМ
+        message += `├ ОС: ${totalOsSelection} ед.\n`;
+        message += `└ РМ: ${totalRmSelection} ед.\n\n`;
 
         message += `📋 *РАЗМЕЩЕНИЕ ТОВАРА*\n`;
-        message += `├ ОС: ${totalOsPlacement} ед.\n`;   // Было РМ, стало ОС
-        message += `└ РМ: ${totalRmPlacement} ед.\n\n`; // Было ОС, стало РМ
+        message += `├ ОС: ${totalOsPlacement} ед.\n`;
+        message += `└ РМ: ${totalRmPlacement} ед.\n\n`;
 
         message += `📈 *ОБЩАЯ СТАТИСТИКА*\n`;
         message += `├ Дней с данными: ${daysWithData}\n`;
@@ -409,7 +354,8 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
         
     } catch (error) {
         console.error('Ошибка при получении данных за месяц:', error);
-        await ctx.answerCbQuery('Ошибка получения данных');
+        await ctx.reply('Не удалось получить данные за месяц. Попробуйте позже.');
+        await ctx.answerCbQuery();
     }
 });
 
@@ -444,17 +390,15 @@ bot.action(/^detail_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
                 
                 if (hasSelection) {
                     message += `📦 Отбор: `;
-                    // ПОМЕНЯЛИ РМ и ОС МЕСТАМИ!
-                    if (selectionData[`os_day_${day}`] > 0) message += `ОС=${selectionData[`os_day_${day}`]} `; // Было РМ
-                    if (selectionData[`rm_day_${day}`] > 0) message += `РМ=${selectionData[`rm_day_${day}`]}`;   // Было ОС
+                    if (selectionData[`os_day_${day}`] > 0) message += `ОС=${selectionData[`os_day_${day}`]} `;
+                    if (selectionData[`rm_day_${day}`] > 0) message += `РМ=${selectionData[`rm_day_${day}`]}`;
                     message += `\n`;
                 }
                 
                 if (hasPlacement) {
                     message += `📋 Размещение: `;
-                    // ПОМЕНЯЛИ РМ и ОС МЕСТАМИ!
-                    if (placementData[`os_day_${day}`] > 0) message += `ОС=${placementData[`os_day_${day}`]} `; // Было РМ
-                    if (placementData[`rm_day_${day}`] > 0) message += `РМ=${placementData[`rm_day_${day}`]}`;   // Было ОС
+                    if (placementData[`os_day_${day}`] > 0) message += `ОС=${placementData[`os_day_${day}`]} `;
+                    if (placementData[`rm_day_${day}`] > 0) message += `РМ=${placementData[`rm_day_${day}`]}`;
                     message += `\n`;
                 }
                 message += `\n`;
@@ -475,7 +419,8 @@ bot.action(/^detail_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
         
     } catch (error) {
         console.error('Ошибка при детализации:', error);
-        await ctx.answerCbQuery('Ошибка детализации');
+        await ctx.reply('Не удалось получить детализированные данные. Попробуйте позже.');
+        await ctx.answerCbQuery();
     }
 });
 
@@ -490,7 +435,6 @@ async function getErrorCount(fio) {
 
         const rows = result.data.values;
         if (!rows || rows.length === 0) {
-            console.log('Нет данных в листе Ошибки, возвращаем 0');
             return 0;
         }
 
@@ -498,7 +442,7 @@ async function getErrorCount(fio) {
         return errors.length;
     } catch (error) {
         console.error('Ошибка при получении количества ошибок:', error.message);
-        return 0;
+        throw error;
     }
 }
 
@@ -514,7 +458,7 @@ async function getSelectionData(fio, year, month) {
         
         const rows = result.data.values;
         if (!rows) {
-            return createEmptyDailyData();
+            throw new Error('Данные отбора не найдены');
         }
         
         const data = {};
@@ -535,9 +479,8 @@ async function getSelectionData(fio, year, month) {
         
         filteredData.forEach(row => {
             const day = new Date(row[1]).getDate();
-            // ПОМЕНЯЛИ РМ и ОС МЕСТАМИ!
-            const os = parseFloat(row[2]) || 0; // Было РМ, стало ОС (столбец 2)
-            const rm = parseFloat(row[3]) || 0; // Было ОС, стало РМ (столбец 3)
+            const os = parseFloat(row[2]) || 0;
+            const rm = parseFloat(row[3]) || 0;
             
             data[`rm_day_${day}`] = rm;
             data[`os_day_${day}`] = os;
@@ -547,7 +490,7 @@ async function getSelectionData(fio, year, month) {
         
     } catch (error) {
         console.error('Ошибка при получении данных отбора:', error.message);
-        return createEmptyDailyData();
+        throw error;
     }
 }
 
@@ -563,7 +506,7 @@ async function getPlacementData(fio, year, month) {
         
         const rows = result.data.values;
         if (!rows) {
-            return createEmptyDailyData();
+            throw new Error('Данные размещения не найдены');
         }
         
         const data = {};
@@ -584,9 +527,8 @@ async function getPlacementData(fio, year, month) {
         
         filteredData.forEach(row => {
             const day = new Date(row[1]).getDate();
-            // ПОМЕНЯЛИ РМ и ОС МЕСТАМИ!
-            const os = parseFloat(row[2]) || 0; // Было РМ, стало ОС (столбец 2)
-            const rm = parseFloat(row[3]) || 0; // Было ОС, стало РМ (столбец 3)
+            const os = parseFloat(row[2]) || 0;
+            const rm = parseFloat(row[3]) || 0;
             
             data[`rm_day_${day}`] = rm;
             data[`os_day_${day}`] = os;
@@ -596,7 +538,7 @@ async function getPlacementData(fio, year, month) {
         
     } catch (error) {
         console.error('Ошибка при получении данных размещения:', error.message);
-        return createEmptyDailyData();
+        throw error;
     }
 }
 
@@ -610,8 +552,7 @@ async function getShiftData(fio) {
 
         const rows = result.data.values;
         if (!rows || rows.length < 2) {
-            console.log('Нет данных в листе Табель, используем mock данные');
-            return getMockShiftData();
+            throw new Error('Данные табеля не найдены');
         }
 
         // Поиск сотрудника в таблице
@@ -620,21 +561,20 @@ async function getShiftData(fio) {
             for (let j = 0; j < Math.min(row.length, 10); j++) {
                 if (row[j] && row[j].toString().trim() === fio) {
                     return {
-                        plannedShifts: parseInt(row[0] || 0, 10),
-                        extraShifts: parseInt(row[1] || 0, 10),
-                        absences: parseInt(row[2] || 0, 10),
-                        reinforcementShifts: parseInt(row[3] || 0, 10)
+                        plannedShifts: parseInt(row[j+1] || 0, 10),
+                        extraShifts: parseInt(row[j+2] || 0, 10),
+                        absences: parseInt(row[j+3] || 0, 10),
+                        reinforcementShifts: parseInt(row[j+4] || 0, 10)
                     };
                 }
             }
         }
         
-        console.log('Сотрудник не найден в табеле, используем mock данные');
-        return getMockShiftData();
+        throw new Error('Сотрудник не найден в табеле');
         
     } catch (error) {
         console.error('Ошибка при получении данных табеля:', error.message);
-        return getMockShiftData();
+        throw error;
     }
 }
 
@@ -649,13 +589,12 @@ bot.catch(async (error, ctx) => {
 });
 
 // Запуск бота с обработкой конфликтов
-// Запуск бота с обработкой конфликтов
 async function startBot() {
     try {
         // Принудительная очистка предыдущих сессий
         console.log('Очистка предыдущих сессий...');
         try {
-            await bot.telegram.getMe(); // Проверка подключения
+            await bot.telegram.getMe();
         } catch (error) {
             if (error.response?.error_code === 409) {
                 console.log('Обнаружена конфликтная сессия, ждем 5 секунд...');
@@ -664,13 +603,13 @@ async function startBot() {
         }
 
         await bot.launch({
-            dropPendingUpdates: true, // Важно! Очищает очередь
+            dropPendingUpdates: true,
             allowedUpdates: [],
             polling: {
                 params: {
                     timeout: 30,
                     limit: 100,
-                    offset: Math.floor(Math.random() * 1000) // Случайный offset
+                    offset: Math.floor(Math.random() * 1000)
                 }
             }
         });
@@ -680,7 +619,7 @@ async function startBot() {
         console.error('Ошибка при запуске бота:', error);
         if (error.response?.error_code === 409) {
             console.log('Конфликтная сессия, перезапуск через 10 секунд...');
-            setTimeout(startBot, 10000); // Автоперезапуск
+            setTimeout(startBot, 10000);
         } else {
             process.exit(1);
         }
