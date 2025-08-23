@@ -649,16 +649,28 @@ bot.catch(async (error, ctx) => {
 });
 
 // Запуск бота с обработкой конфликтов
+// Запуск бота с обработкой конфликтов
 async function startBot() {
     try {
+        // Принудительная очистка предыдущих сессий
+        console.log('Очистка предыдущих сессий...');
+        try {
+            await bot.telegram.getMe(); // Проверка подключения
+        } catch (error) {
+            if (error.response?.error_code === 409) {
+                console.log('Обнаружена конфликтная сессия, ждем 5 секунд...');
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
+
         await bot.launch({
-            dropPendingUpdates: true,
+            dropPendingUpdates: true, // Важно! Очищает очередь
             allowedUpdates: [],
             polling: {
                 params: {
                     timeout: 30,
                     limit: 100,
-                    offset: Math.floor(Math.random() * 1000)
+                    offset: Math.floor(Math.random() * 1000) // Случайный offset
                 }
             }
         });
@@ -667,9 +679,11 @@ async function startBot() {
     } catch (error) {
         console.error('Ошибка при запуске бота:', error);
         if (error.response?.error_code === 409) {
-            console.log('Обнаружена конфликтная сессия, попробуйте позже');
+            console.log('Конфликтная сессия, перезапуск через 10 секунд...');
+            setTimeout(startBot, 10000); // Автоперезапуск
+        } else {
+            process.exit(1);
         }
-        process.exit(1);
     }
 }
 
