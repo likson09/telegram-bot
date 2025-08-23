@@ -150,6 +150,13 @@ function createMainMenu(shortFio, userId) {
     ];
 }
 
+// Функция для создания кнопки "Назад в меню"
+function createBackButton(shortFio, userId) {
+    return [
+        [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
+    ];
+}
+
 // Команда /start
 bot.start(async (ctx) => {
     console.log('Получена команда /start от пользователя:', ctx.from.id);
@@ -255,10 +262,12 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
             await ctx.editMessageText('📊 Выберите раздел:', {
                 reply_markup: { inline_keyboard: createMainMenu(shortFio, userId) }
             });
+            await ctx.answerCbQuery();
             return;
         }
 
         if (!fullFio) {
+            await ctx.answerCbQuery('ФИО не найдено');
             await ctx.reply('❌ ФИО не найдено. Пожалуйста, отправьте ФИО снова.');
             return;
         }
@@ -267,16 +276,57 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
             case 'e':
                 try {
                     const errorCount = await getErrorCount(fullFio);
-                    await ctx.editMessageText(`📊 Количество ошибок для ${fullFio}: ${errorCount}`);
+                    await ctx.editMessageText(`📊 Количество ошибок для ${fullFio}: ${errorCount}`, {
+                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+                    });
                 } catch (error) {
-                    await ctx.reply('❌ Не удалось получить данные об ошибках.');
+                    console.error('Ошибка при получении ошибок:', error);
+                    await ctx.editMessageText('❌ Не удалось получить данные об ошибках.', {
+                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+                    });
+                }
+                break;
+                
+            case 'p':
+                try {
+                    // Создаем клавиатуру для выбора месяца
+                    const currentYear = new Date().getFullYear();
+                    const currentMonth = new Date().getMonth();
+                    
+                    const monthKeyboard = [];
+                    for (let i = 0; i < 6; i++) {
+                        const monthDate = new Date(currentYear, currentMonth - i, 1);
+                        const monthName = monthDate.toLocaleString('ru', { month: 'long' });
+                        const year = monthDate.getFullYear();
+                        
+                        monthKeyboard.push([
+                            { 
+                                text: `${monthName} ${year}`, 
+                                callback_data: `month_${monthDate.getMonth()}_${year}_${shortFio}`
+                            }
+                        ]);
+                    }
+                    
+                    monthKeyboard.push([{ 
+                        text: '↩️ Назад в меню', 
+                        callback_data: `back_${shortFio}_${userId}` 
+                    }]);
+                    
+                    await ctx.editMessageText('📅 Выберите месяц:', {
+                        reply_markup: { inline_keyboard: monthKeyboard }
+                    });
+                } catch (error) {
+                    console.error('Ошибка при создании меню производительности:', error);
+                    await ctx.editMessageText('❌ Не удалось создать меню производительности.', {
+                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+                    });
                 }
                 break;
                 
             case 't':
                 try {
                     const shiftData = await getShiftData(fullFio);
-                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts;
+                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + shiftData.reinforcementShifts;
                     const attendanceRate = shiftData.plannedShifts > 0 
                         ? (totalWorked / shiftData.plannedShifts) * 100 
                         : 0;
@@ -289,9 +339,14 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                         `✅ Всего отработано: ${totalWorked} смен\n` +
                         `📈 Посещаемость: ${attendanceRate.toFixed(2)}%`;
 
-                    await ctx.editMessageText(message);
+                    await ctx.editMessageText(message, {
+                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+                    });
                 } catch (error) {
-                    await ctx.reply('❌ Не удалось получить данные табеля.');
+                    console.error('Ошибка при получении данных табеля:', error);
+                    await ctx.editMessageText('❌ Не удалось получить данные табеля.', {
+                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+                    });
                 }
                 break;
         }
@@ -301,6 +356,45 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
     } catch (error) {
         console.error('Ошибка в callback:', error);
         await ctx.answerCbQuery();
+    }
+});
+
+// Обработчик для выбора месяца
+bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
+    try {
+        const [, month, year, shortFio] = ctx.match;
+        const fullFio = ctx.session?.fullFio;
+        const userId = ctx.from.id;
+        
+        if (!fullFio) {
+            await ctx.answerCbQuery('ФИО не найдено');
+            return;
+        }
+
+        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Март', 'Июнь', 
+                           'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        
+        const monthName = monthNames[parseInt(month)];
+        
+        // Здесь будет логика получения данных за месяц
+        const message = `📊 Производительность за ${monthName} ${year}\n` +
+                       `👤 Сотрудник: ${fullFio}\n\n` +
+                       `Данные за этот период пока недоступны.`;
+        
+        await ctx.editMessageText(message, {
+            reply_markup: { 
+                inline_keyboard: [
+                    [{ text: '↩️ Выбрать другой месяц', callback_data: `p_${shortFio}_${userId}` }],
+                    [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
+                ]
+            }
+        });
+        
+        await ctx.answerCbQuery();
+        
+    } catch (error) {
+        console.error('Ошибка при выборе месяца:', error);
+        await ctx.answerCbQuery('Ошибка при выборе месяца');
     }
 });
 
