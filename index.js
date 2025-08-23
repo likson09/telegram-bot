@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 // ЗАШИТЫЕ ДАННЫЕ
 const BOT_TOKEN = '8451305555:AAGIs89Hzl4UKidFRVHeiQaaj2Qs0STtJxI';
 const SPREADSHEET_ID = '1s1MZLWFcWZ2mkZJOECJ07KkZ9ETpODvcuQ9xGvVRLoQ';
-const GOOGLE_CREDENTIALS_BASE64 = 'ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCiAgInByb2plY3RfaWQiOiAiZm9yd2FyZC1saWJlcnR5LTQ2OTcwMC1wNyIsCiAgInByaXZhdGVfa2V5X2lkIjogIjljZDRmOTBjYWJmNDdkNjgxMzI5YmY2YmRiZTdiNTgyOWNjMzI3MzMiLAogICJwcml2YXRlX2tleSI6ICItLS0tLUJFR0lOIFBSSVZBVEUgS0VZLS0tLS1cbk1JSUV2UUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktjd2dnU2pBZ0VBQW9JQkFRREUwV1E5dkkrQUJ4SHhcbmN1UTQzZUJneHJPQ0xpdlBkL250a1VyL1JXZW8rQUNOYnRTRUROdnhKMXo0bjFZUURwNzYxZ3paeG9ZdmRCRVRcblp3NkFBUVFyYURXS1FCdTA3d05iMU52RmdLNXZlWngwQ05xSnVzclIrMzViMVgvK1pTdUhnV245SSs3N2pielhcbmp1TnBnSzFJa0ZGTWVtWGJ4KzhJdmZIbTh0ak1Ma1hVODRMMUpyZjMwN0lhZFBNdjJWN3lPd2ZSVFdocEJpVlZcbkpIZWZYSXBObFVaWlpTTjNkSmptTGxZRFNETGFLeStlNlBjM0EwbjcwMy8yb21SdFFuVTdVdGh2VU1OWTI4Rmhcbmlwdkhmdnk2WHhnQVlGWUVFYVpQQmcwZ3pJVitsWS9QVHIwL1hjY04xaDhLTkRWZXRjTzJwNGMxOFFwTnVKYmhcbjRib2ZPSXIvQWdNQkFBRUNnZ0VBU1hzenhhamttcFFKS3ZBT0xQMEpqSmdpNVBOLy85RjNTaTc0cFIyd2VmRTlcbm81QkJYNXU5Y2VlVVdtNkNuelFXUHVnem5BcjJoamo3TnhjKzNxT0Nmd0pGR3Z5Y1c0enc0QlEwaVNSbCs5Q1hcbmpPclJUS0trbm9rYXdBYVI1dFMyejd5TmFhbEV6RDQ2eHUvZUQ4R3U4R3lSTGRCMHZ2MkNUTzA5cDAvN2lSOEZcblZDc0ZqaHd1NDhvazBmQUMwd1VQYTExQm40WkZjZC9ENHhRWDluNGljaVdZUjFkcUw5cjYvd29acDhpYlMxYkVcbmJ2ZVpRQldjVldScWs2MkhYQklZL3d4a3VXTVJaS2xjV3VESG5VNm9ONG9ZRi83TTYzNnZoWGEvcW12cGU3K2tcbjU0OFEzYzROZzlzemhOcjBGZVc4cUkvYlRyVUNubFJPVVRZZDNxSU1BUUtCZ1FEMFh3OW5FRytUcEJoUzRsWUdcbmdwZU0raDFHZUtFSDlLTFdOSi9vZm90cTZsdTFmVTNrdTFPcFdkQXBVL2lJVm56NEFUbW1oV3g0QUMzdjRSMmpcbjcya3o4TWtaWHJYVkRoU3h2VlRWSzNzeXE3bjRScE44cFlrSW5ndDNBMk1QOE92Mm1VR3VYWGoraWYva0VYZVRcbjZ2Z3BFM0NkSWZ1REV0MVlrcW1RVS9FY2dRS0JnUURPTHdqTFBFcGNuY3Z3T3dxcExwT2MwSVM5UEtKeXN6Rm5cbm55aHFCWUlrQjdKOUdMR1S4aVZDSStXNHA4RWg5TjFpbnNYSlpPT1I0TnJCVjFreURxMml0Uk02Vm9vcFdKbnZcbmYybFovRDlUbzVFcVFCR0VMZWhMOUtDalBtVUdKcEtkblNFWm9QNm5idHk1UnEyNDFuSjBuUGt2cGc1ZnBXdFVcbkE1ZEI1R1BuZndLQmdIOU5xanQ1djNaOWJNSjQ4SEd4eEh1SHJJcVN1dWpuRTVGZGx0UktZQnpSZS9jZkVONFFcbmpIUFR1dkpjc1VOdE11c0wwRm1rZGk1SmdhVE9kRjk3a0NXajBVOXJISFNpUWp1WnMwRGR4dTlOc0xMYktXZ3NcbjRDZGlGZnpwQWNsREs5bXFXeUlYeGJsc2NLY0NSbllEV1VZa3Yyek1VRGNuTTdJNXJTWG41TnFCQW9HQWYzd2hcbmlkaHJlanl2UG9pakhOeUp0T3BSU05qVzhPalBZV3pOaGxDRm1WV1JEVHhaZjZ4dFVTbjAvbW5yUnQycWpUSHlcbnhZVzJHQnJaNTdYa2xzanduNndxaVdXODQ3ZSs1cEQzU1FabytZUW5XK0psY2o4WVpPNks3S1RGdmpuWGFkRWdcbkNFSzljalZnRU1jYzN5N3BjaVVsQmtzOGsvTXFHN1prcmY5VHJtMENnWUVBamthWHZuOVZTRFNPVlkyaTUxSytcbkIxZ01ucWZQTHZsZzdaUXltNE5UeFNzNG1QUDRrNmtXWGF3cDgySjlDYjlmUXhSZWRFbEdLdG1UcEdJOHIrMjVcbmk3em4rWFh3QXdmdUhZVVFIaEJxR2JISGhJREhCVnNzazdDS3ZFNkxZd2kxQi8yaWtVVFBsMVBjV3FpTTlUa2lcbnY3Mm03SkRhSjk0cGxKQ3NWeGVhQzNBPVxuLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLVxuIiwKICAiY2xpZW50X2VtYWlsIjogImJlbGtpbkBmb3J3YXJkLWxpYmVydHktNDY5NzAwLXA3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwKICAiY2xpZW50X2lkIjogIjEwNzIzNzcwMDI4OTY1NjczMDU3MSIsCiAgImF1dGhfdXJpIjogImh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbS9vL29hdXRoMi9hdXRoIiwKICAidG9rZW5fdXJpIjogImh0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VuIiwKICAiYXV0aF9wcm92aWRlcl94NTA5X2NlcnRfdXJsIjogImh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL29hdXRoMi92MS9jZXJ0cyIsCiAgImNsaWVudF94NTA5X2NlcnRfdXJsIjogImh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL3JvYm90L3YxL21ldGFkYXRhL3g1MDkvYmVsa2luJTQwZm9yd2FyZC1saWJlcnR5LTQ2OTcwMC1wNy5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsCiAgInVuaXZlcnNlX2RvbWFpbiI6ICJnb29nbGVhcGlzLmNvbSJ9';
+const GOOGLE_CREDENTIALS_BASE64 = 'ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCiAgInByb2plY3RfaWQiOiAiZm9yd2FyZC1saWJlcnR5LTQ2OTcwMC1wNyIsCiAgInByaXZhdGVfa2V5X2lkIjogIjljZDRmOTBjYWJmNDdkNjgxMzI5YmF2YmRiZTdiNTgyOWNjMzI3MzMiLAogICJwcml2YXRlX2tleSI6ICItLS0tLUJFR0lOIFBSSVZBVEUgS0VZLS0tLS1cbk1JSUV2UUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktjd2dnU2pBZ0VBQW9JQkFRREUwV1E5dkkrQUJ4SHhcbmN1UTQzZUJneHJPQ0xpdlBkL250a1VyL1JXZW8rQUNOYnRTRUROdnhKMXo0bjFZUURwNzYxZ3paeG9ZdmRCRVRcblp3NkFBUVFyYURXS1FCdTA3d05iMU52RmdLNXZlWngwQ05xSnVzclIrMzViMVgvK1pTdUhnV245SSs3N2pielhcbmp1TnBnSzFJa0ZGTWVtWGJ4KzhJdmZIbTh0ak1Ma1hVODRMMUpyZjMwN0lhZFBNdjJWN3lPd2ZSVFdocEJpVlZcbkpIZWZYSXBObFVaWlpTTjNkSmptTGxZRFNETGFLeStlNlBjM0EwbjcwMy8yb21SdFFuVTdVdGh2VU1OWTI4Rmhcbmlwdkhmdnk2WHhnQVlGWUVFYVpQQmcwZ3pJVitsWS9QVHIwL1hjY04xaDhLTkRWZXTjTzJwNGMxOFFwTnVKYmhcbjRib2ZPSXIvQWdNQkFBRUNnZ0VBU1hzenhhamttcFFKS3ZBT0xQMEpqSmdpNVBOLy85RjNTaTc0cFIyd2VmRTlcbm81QkJYNXU5Y2VlVVdtNkNuelFXUHVnem5BcjJoamo3TnhjKzNxT0Nmd0pGR3Z5Y1c0enc0QlEwaVNSbCs5Q1hcbmpPclJUS0trbm9rYXdBYVI1dFMyejd5TmFhbEV6RDQ2eHUvZUQ4R3U4R3lSTGRCMHZ2MkNUTzA5cDAvN2lSOEZcblZDc0ZqaHd1NDhvazBmQUMwd1VQYTExQm40WkZjZC9ENHhRWDluNGljaVdZUjFkcUw5cjYvd29acDhpYlMxYkVcbmJ2ZVpRQldjVldScWs2MkhYQklZL3d4a3VXTVJaS2xjV3VESG5VNm9ONG9ZRi83TTYzNnZoWGEvcW12cGU3K2tcbjU0OFEzYzROZzlzemhOcjBGZVc4cUkvYlRyVUNubFJPVVRZZDNxSU1BUUtCZ1FEMFh3OW5FRytUcEJoUzRsWUdcbmdwZU0raDFHZUtFSDlLTFdOSi9vZm90cTZsdTFmVTNrdTFPcFdkQXBVL2lJVm56NEFUbW1oV3g0QUMzdjRSMmpcbjcya3o4TWtaWHJYVkRoU3h2VlRWSzNzeXE3bjRScE44cFlrSW5ndDNBMk1QOE92Mm1VR3VYWGoraWYva0VYZVRcbjZ2Z3BFM0NkSWZ1REV0MVlrcW1RVS9FY2dRS0JnUURPTHdqTFBFcGNuY3Z3T3dxcExwT2MwSVM5UEtKeXN6Rm5cbm55aHFCWUlrQjdKOUdMR1S4aVZDSStXNHA4RWg5TjFpbnNYSlpPT1I0TnJCVjFreURxMml0Uk02Vm9vcFdKbnZcbmYybFovRDlUbzVFcVFCR0VMZWhMOUtDalBtVUdKcEtkblNFWm9QNm5idHk1UnEyNDFuSjBuUGt2cGc1ZnBXdFVcbkE1ZEI1R1BuZndLQmdIOU5xanQ1djNaOWJNSjQ8SEd4eEh1SHJJcVN1dWpuRTVGZGx0UktZQnpSZS9jZkVONFFcbmpIUFR1dkpjc1VOdE11c0wwRm1rZGk1SmdhVE9kRjk3a0NXajBVOXJISFNpUWp1WnMwRGR4dTlOc0xMYktXZ3NcbjRDZGlGZnpwQWNsREs5bXFXeUlYeGJsc2NLY0NSbllEV1VZa3Yyek1VRGNuTTdJNXJTWG41TnFCQW9HQWYzd2hcbmlkaHJlanl2UG9pakhOeUp0T3BSU05qVzhPalBZV3pOaGxDRm1WV1JEVHhaZjZ4dFVTbjAvbW5yUnQycWpUSHlcbnhZVzJHQnJaNTdYa2xzanduNndxaVdXODQ3ZSs1cEQzU1FabytZUW5XK0psY2o4WVpPNks3S1RGdmpuWGFkRWdcbkNFSzljalZnRU1jYzN5N3BjaVVsQmtzOGsvTXFHN1prcmY5VHJtMENnWUVBamthWHZuOVZTRFNPVlkyaTUxSytcbkIxZ01ucWZQTHZsZzdaUXltNE5UeFNzNG1QUDRrNmtXWGF3cDgySjlDYjlmUXhSZWRFbEdLdG1UcEdJOHIrMjVcbmk3em4rWFh3QXdmdUhZVVFIaEJxR2JISGhJREhCVnNzazdDS3ZFNkxZd2kxQi8yaWtVVFBsMVBjV3FpTTlUa2lcbnY3Mm03SkRhSjk0cGxKQ3SWeGVhQzNBPVxuLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLVxuIiwKICAiY2xpZW50X2VtYWlsIjogImJlbGtpbkBmb3J3YXJkLWxpYmVydHktNDY5NzAwLXA3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwKICAiY2xpZW50X2lkIjogIjEwNzIzNzcwMDI4OTY1NjczMDU3MSIsCiAgImF1dGhfdXJpIjogImh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbS9vL29hdXRoMi9hdXRoIiwKICAidG9rZW5fdXJpIjogImh0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuC29tL3Rva2VuIiwKICAiYXV0aF9wcm92aWRlcl94NTA5X2NlcnRfdXJsIjogImh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL29hdXRoMi92MS9jZXJ0cyIsCiAgImNsaWVudF94NTA5X2NlcnRfdXJsIjogImh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL3JvYm90L3YxL21ldGFkYXRhL3g1MDkvYmVsa2luJTQwZm9yd2FyZC1saWJlcnR5LTQ2OTcwMC1wNy5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsCiAgInVuaXZlcnNlX2RvbWFpbiI6ICJnb29nbGVhcGlzLmNvbSJ9';
 
 // Подключение к Google Sheets через Service Account
 async function safeConnectToSheet() {
@@ -60,50 +60,6 @@ app.get('/health', (req, res) => {
         time: new Date().toISOString()
     });
 });
-
-app.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
-});
-
-// Функция для нормализации строк (замена Ё на Е)
-function normalizeString(str) {
-    if (!str) return '';
-    return str.normalize('NFD').replace(/Ё/g, 'Е').normalize('NFC');
-}
-
-// Функция валидации ФИО с улучшенной логикой
-function validateFIO(fio) {
-    // Удаляем лишние пробелы
-    fio = fio.trim().replace(/\s+/g, ' ');
-    
-    // Разбиваем на части
-    const parts = fio.split(' ');
-    
-    // Проверяем количество частей
-    if (parts.length !== 3) {
-        console.log('Ошибка: Неверное количество частей ФИО');
-        return false;
-    }
-    
-    // Проверяем первую букву каждой части
-    if (!parts.every(part => /^[А-ЯЁ]/.test(part))) {
-        console.log('Ошибка: Части ФИО должны начинаться с заглавной буквы');
-        return false;
-    }
-    
-    // Регулярное выражение для проверки каждой части
-    const regex = /^[А-ЯЁа-яё\-]+$/;
-    
-    // Проверяем каждую часть ФИО
-    for (let part of parts) {
-        if (!regex.test(part)) {
-            console.log(`Ошибка в части ФИО: ${part}`);
-            return false;
-        }
-    }
-    
-    return true;
-}
 
 // Инициализация бота с расширенными сессиями
 const bot = new Telegraf(BOT_TOKEN);
@@ -336,7 +292,6 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
         message += `👤 *${fullFio}*\n`;
         message += `📅 *${monthName} ${year}*\n\n`;
 
-        // ПОМЕНЯЛИ РМ и ОС МЕСТАМИ!
         message += `📦 *ОТБОР ТОВАРА*\n`;
         message += `├ ОС: ${totalOsSelection} ед.\n`;
         message += `└ РМ: ${totalRmSelection} ед.\n\n`;
@@ -562,7 +517,7 @@ async function getShiftData(fio) {
             throw new Error('Данные табеля не найдены');
         }
 
-        // Поиск сотрудника в таблие
+        // Поиск сотрудника в таблице
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
             for (let j = 0; j < Math.min(row.length, 10); j++) {
@@ -583,6 +538,46 @@ async function getShiftData(fio) {
         console.error('Ошибка при получении данных табеля:', error.message);
         throw error;
     }
+}
+
+// Функция для нормализации строк (замена Ё на Е)
+function normalizeString(str) {
+    if (!str) return '';
+    return str.normalize('NFD').replace(/Ё/g, 'Е').normalize('NFC');
+}
+
+// Функция валидации ФИО с улучшенной логикой
+function validateFIO(fio) {
+    // Удаляем лишние пробелы
+    fio = fio.trim().replace(/\s+/g, ' ');
+    
+    // Разбиваем на части
+    const parts = fio.split(' ');
+    
+    // Проверяем количество частей
+    if (parts.length !== 3) {
+        console.log('Ошибка: Неверное количество частей ФИО');
+        return false;
+    }
+    
+    // Проверяем первую букву каждой части
+    if (!parts.every(part => /^[А-ЯЁ]/.test(part))) {
+        console.log('Ошибка: Части ФИО должны начинаться с заглавной буквы');
+        return false;
+    }
+    
+    // Регулярное выражение для проверки каждой части
+    const regex = /^[А-ЯЁа-яё\-]+$/;
+    
+    // Проверяем каждую часть ФИО
+    for (let part of parts) {
+        if (!regex.test(part)) {
+            console.log(`Ошибка в части ФИО: ${part}`);
+            return false;
+        }
+    }
+    
+    return true;
 }
 
 // Глобальная обработка ошибок
@@ -609,16 +604,23 @@ async function startBot() {
         botLaunchAttempts++;
         console.log(`Попытка запуска бота #${botLaunchAttempts}...`);
 
-        // Используем webhook вместо polling для Render
+        // На Render используем webhook, но настраиваем его правильно
         if (process.env.RENDER) {
             console.log('Запуск в режиме webhook (Render)');
-            const domain = process.env.RENDER_EXTERNAL_URL || `https://${process.env.RENDER_SERVICE_NAME}.onrender.com`;
-            await bot.launch({
-                webhook: {
-                    domain: domain,
-                    port: PORT
-                }
+            
+            // Устанавливаем webhook endpoint
+            app.use(bot.webhookCallback('/telegram-webhook'));
+            
+            // Запускаем сервер
+            const server = app.listen(PORT, () => {
+                console.log(`Server listening on port ${PORT}`);
             });
+            
+            // Устанавливаем webhook
+            const domain = process.env.RENDER_EXTERNAL_URL || `https://${process.env.RENDER_SERVICE_NAME}.onrender.com`;
+            await bot.telegram.setWebhook(`${domain}/telegram-webhook`);
+            
+            console.log('Webhook установлен успешно');
         } else {
             console.log('Запуск в режиме polling');
             await bot.launch({
