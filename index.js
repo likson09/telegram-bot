@@ -158,10 +158,10 @@ function createMainMenu(shortFio, userId) {
     return [
         [
             { text: 'Ошибки', callback_data: `e_${shortFio}_${userId}` },
-            { text: 'Производительность', callback_data: `p_${shortFio}_${userId}` }
+            { text: 'Табель', callback_data: `t_${shortFio}_${userId}` }
         ],
         [
-            { text: 'Табель', callback_data: `t_${shortFio}_${userId}` }
+            { text: 'Производительность', callback_data: `p_${shortFio}_${userId}` }
         ]
     ];
 }
