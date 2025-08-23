@@ -1,5 +1,6 @@
 const { Telegraf } = require('telegraf');
 const { google } = require('googleapis');
+const crypto = require('crypto');
 const fs = require('fs');
 const { session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
@@ -8,19 +9,42 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ЗАШИТЫЕ ДАННЫЕ
-const BOT_TOKEN = '8451305555:AAGIs89Hzl4UKidFRVHeiQaaj2Qs0STtJxI';
-const SPREADSHEET_ID = '1s1MZLWFcWZ2mkZJOECJ07KkZ9ETpODvcuQ9xGvVRLoQ';
-const GOOGLE_CREDENTIALS_BASE64 = 'ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIsCiAgInByb2plY3RfaWQiOiAiZm9yd2FyZC1saWJlcnR5LTQ2OTcwMC1wNyIsCiAgInByaXZhdGVfa2V5X2lkIjogIjMwNTYzY2UyNGM1MjJiOWFmMjI3YzRlYjkzYmY4Y2UyZWU1NzczMDYiLAogICJwcml2YXRlX2tleSI6ICItLS0tLUJFR0lOIFBSSVZBVEUgS0VZLS0tLS1cbk1JSUV2UUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktjd2dnU2pBZ0VBQW9JQkFRRE0zTDQwZEJITzhJL3Vcbk5tWDBnbUtPaHBhZmVGQkRIZjYxUHpjWWQxMWNPK0FrZWVRaFlKM25ZVnJ4ZGtTWVZ3NFp0YUs4dFk3VGVGSWlcbmhidTVqOHNxUzd4VWtHektuQUFONFZENVdCUklYMVFkTGhLZlBIdysyekFzajlUQnFWcDVXcHNiWDQvQ2JJSnNcbmEzUjBTRjBReEtRUjkxbk1meU01elc5VzcwU01aZEx3YitOMWd1OS92QWxBNk5pVnY0UVp2S28rZFpvMnp0OWZcbjlQRUlpNlQxa2tNdDlqMWVnSzYzb3FlMW9IclR5RkNGL0VGTmVPblB5Q29hRFZPTklmVzZOcUpLUDlJaEVBT2Fcbm13R0Q5aUszQUlFWS9UQXhxYXEzM0l3N2kvejNna2syMVhjY2s4NDUzWllSTTBvdzc2bWh2NGZkdk5GVGhHb0FcbmdhTzRFT1R2QWdNQkFBRUNnZ0VBQmlsWUprZEhhcnBrTHlneEJpa3JGM1pPbVcvdVJMb1E0L3hzK0s0VHVGSUJcbkpTWHVRcGdSVW1kV1R4M0ExdGwxcXFvUXdaN24zaU45TGM5TVZheHRDdnllMFhVdmRBYktkRXNWck5UYXJtMDZcblBLU3BOa2NTL25aUGJ0WG1aRUJLWU1YSWFyVjFoc1d4S0UweFNUNE0waFBYL1RldGhSTkJaVTNpc2c2cnh1ZlpcbmlldHdZMkUxMmgxRXcvejlGb2xzbEd1UjhNRS9jbFBBa2xLOEgwbzc0M0RURUQ0SHR3UjdSa1VTZ2tna0VQU1ZcbmVNNmRJWE1OZGc5ODNrOXlXT1VkS25Tb1lKczFKNEVQcm5XSzNHV1hSL09NL1d2UmtRVUJneVBwV3ZqaXBLNXNcbkVaQTVCNjBmckpGd0pSWllnc3lZVW9KejUvd3RSQ3VqQzRkc2VFUjlvUUtCZ1FEdWlwaEdrdXJVd2RucmFTY0tcbmdtbE1oQndBcTB4dmxSWEJ6bktrcnorRWVTb0FZUVZOV0hYbFRpVDN0QXY5VjZLMG8vZTJ1ZmN5c1E0bjV5TmVcblVsUVhJQktzdmpBQUpYS1hkcjNlUGlZQ3ZycWUxRUoycElXdFdSSzJlaDYrWFRPOW9JbGRXbUNHMTZZRlpBeXdcbmZRejc3emlRa29Uby9sNkhUeVBFbkdNTUxRS0JnUURiMngrR0xpMG9WaWVIZkRaRDFXdWhxNHJ3MGZQNlVMb1JcbkQ4ZmgvZGpuV3ByS0ZGRklRc3h2N2xMUVcyWVFsOU83UnNwV0NsVjMwNjNwRmo0WEFzU0tHQ1NoVnJqa1kvcDJcbk1Ec041UFFSK1VwaElkRlBkckxlN25MSVZmSGF4UjAxM3U2b096SW1xb081WTZLTjVOMGl3b0NYWTNOODdHRW5cbk05aDVmNlU3Q3dLQmdCZXVOcE82L2drRS9ZYzdOeDc1OTA0YlIxUmhyUUxldi93dmJINGd6Nk50QzloaHlVNzJcbld5M2FaaDBaQ0orcjFZRXRUZWdiNmdoa1AwMkN5cVlRY2p5aGVIa2hvRTVEYVc3VDRPRnhOZ0RMd21jR0Yxc0RcbjFpbHhVRVJCTjFBYW5JcFVwNDVXN0lJMllrcml0Y2ZIZ2tSNGFSc2hFSVM0eTlXTzY3UVcrbFk1QW9HQkFMdklcbkpOek9nL04zNHJ0dDlFdHI5a3BYNG94ZVJ5ejkxbTdNTThWcXMrQ25HcDZQUy8yVVVGa3FEY0c0enl4TkFhTnJcbmkxYUI3UTR6MXM3SEdMRSt3Ky9QUHpvdWdDMVMxNUlyRDhXR1VKRXBnOFlDeEd4Q3pmUnJaYzZHMmRRcG1CRnpcbklCVEF1czBieHZhSmkwWDJ2SW43NXlsbTREVkxFSkFUVUVvMkpFS1JBb0dBWExNdGRxZnlEUmlObVc2cE1ydGFcbkdGZjhmRGZGUUpITnZIMU12bW9HUVZ4VFE0amd6NFU1TnJyN1M4NmpsNTFkQnozU1A5TUhoYS9SWE83WVpYRTZcbnBxN0JzTUN3QXJIc2ZTeDNiTXBYNm1WVnpUaURzemdLQ0lBMTVvYjMreFA5VmcvMjlGdXo3OTh5T2h5V29zOEdcblRKcDlVTTFpd2pGbEZKSHRuNjBmNEk4PVxuLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLVxuIiwKICAiY2xpZW50X2VtYWlsIjogImJlbGtpbkBmb3J3YXJkLWxpYmVydHktNDY5NzAwLXA3LmlhbS5nc2VydmljZWFjY291bnQuY29tIiwKICAiY2xpZW50X2lkIjogIjEwNzIzNzcwMDI4OTY1NjczMDU3MSIsCiAgImF1dGhfdXJpIjogImh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbS9vL29hdXRoMi9hdXRoIiwKICAidG9rZW5fdXJpIjogImh0dHBzOi8vb2F1dGgyLmdvb2dsZWFwaXMuY29tL3Rva2VuIiwKICAiYXV0aF9wcm92aWRlcl94NTA5X2NlcnRfdXJsIjogImh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL29hdXRoMi92MS9jZXJ0cyIsCiAgImNsaWVudF94NTA5X2NlcnRfdXJsIjogImh0dHBzOi8vd3d3Lmdvb2dsZWFwaXMuY29tL3JvYm90L3YxL21ldGFkYXRhL3g1MDkvYmVsa2luJTQwZm9yd2FyZC1saWJlcnR5LTQ2OTcwMC1wNy5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsCiAgInVuaXZlcnNlX2RvbWFpbiI6ICJnb29nbGVhcGlzLmNvbSIKfQ==';
+// БЕЗОПАСНЫЕ ДАННЫЕ из переменных окружения
+const BOT_TOKEN = process.env.BOT_TOKEN || '8451305555:AAGIs89Hzl4UKidFRVHeiQaaj2Qs0STtJxI';
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID || '1s1MZLWFcWZ2mkZJOECJ07KkZ9ETpODvcuQ9xGvVRLoQ';
+const GOOGLE_CREDENTIALS_BASE64 = process.env.GOOGLE_CREDENTIALS_BASE64;
+
+// Проверка наличия обязательных переменных
+if (!GOOGLE_CREDENTIALS_BASE64) {
+    console.error('❌ GOOGLE_CREDENTIALS_BASE64 не настроена');
+    process.exit(1);
+}
+
+if (!BOT_TOKEN || BOT_TOKEN.includes('ваш_токен')) {
+    console.error('❌ BOT_TOKEN не настроен');
+    process.exit(1);
+}
 
 // Функция для исправления формата приватного ключа
 function fixPrivateKey(privateKey) {
-    // Убираем лишние пробелы и символы переноса строк
-    return privateKey
+    if (!privateKey) return privateKey;
+    
+    // Убедимся, что ключ имеет правильный формат
+    let fixedKey = privateKey
         .replace(/\\n/g, '\n')
         .replace(/-----BEGIN PRIVATE KEY-----/, '-----BEGIN PRIVATE KEY-----\n')
         .replace(/-----END PRIVATE KEY-----/, '\n-----END PRIVATE KEY-----')
         .replace(/\s+/g, '\n');
+
+    // Проверяем, что ключ начинается и заканчивается правильно
+    if (!fixedKey.includes('-----BEGIN PRIVATE KEY-----')) {
+        fixedKey = '-----BEGIN PRIVATE KEY-----\n' + fixedKey;
+    }
+    if (!fixedKey.includes('-----END PRIVATE KEY-----')) {
+        fixedKey = fixedKey + '\n-----END PRIVATE KEY-----';
+    }
+
+    return fixedKey;
 }
 
 // Подключение к Google Sheets через Service Account
@@ -28,16 +52,26 @@ async function safeConnectToSheet() {
     try {
         console.log('Подключение к Google Sheets через Service Account...');
 
-        if (!GOOGLE_CREDENTIALS_BASE64) {
-            throw new Error('Google credentials не настроены');
-        }
-
         // Декодируем credentials из base64
         const credentialsJson = Buffer.from(GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8');
-        const credentials = JSON.parse(credentialsJson);
+        let credentials;
+        
+        try {
+            credentials = JSON.parse(credentialsJson);
+        } catch (parseError) {
+            console.error('❌ Ошибка парсинга JSON credentials:', parseError.message);
+            throw new Error('Невалидный JSON в credentials');
+        }
+
+        // Проверяем валидность credentials
+        if (!credentials.private_key || !credentials.client_email) {
+            throw new Error('Невалидные credentials: отсутствует private_key или client_email');
+        }
 
         // Исправляем формат приватного ключа
         credentials.private_key = fixPrivateKey(credentials.private_key);
+
+        console.log('Формат приватного ключа исправлен');
 
         const auth = new google.auth.GoogleAuth({
             credentials: credentials,
@@ -47,12 +81,13 @@ async function safeConnectToSheet() {
         const client = await auth.getClient();
         const sheets = google.sheets({ version: 'v4', auth: client });
 
-        console.log('Подключение через Service Account успешно');
+        console.log('✅ Подключение через Service Account успешно');
         return sheets;
         
     } catch (error) {
-        console.error('Ошибка при подключении к Google Sheets:', error.message);
+        console.error('❌ Ошибка при подключении к Google Sheets:', error.message);
         console.error('Детали ошибки:', error);
+        
         throw new Error('Не удалось подключиться к Google Sheets');
     }
 }
@@ -74,6 +109,46 @@ app.get('/health', (req, res) => {
         time: new Date().toISOString()
     });
 });
+
+// Функция для нормализации строк (замена Ё на Е)
+function normalizeString(str) {
+    if (!str) return '';
+    return str.normalize('NFD').replace(/Ё/g, 'Е').normalize('NFC');
+}
+
+// Функция валидации ФИО с улучшенной логикой
+function validateFIO(fio) {
+    // Удаляем лишние пробелы
+    fio = fio.trim().replace(/\s+/g, ' ');
+    
+    // Разбиваем на части
+    const parts = fio.split(' ');
+    
+    // Проверяем количество частей
+    if (parts.length !== 3) {
+        console.log('Ошибка: Неверное количество частей ФИО');
+        return false;
+    }
+    
+    // Проверяем первую букву каждой части
+    if (!parts.every(part => /^[А-ЯЁ]/.test(part))) {
+        console.log('Ошибка: Части ФИО должны начинаться с заглавной буквы');
+        return false;
+    }
+    
+    // Регулярное выражение для проверки каждой части
+    const regex = /^[А-ЯЁа-яё\-]+$/;
+    
+    // Проверяем каждую часть ФИО
+    for (let part of parts) {
+        if (!regex.test(part)) {
+            console.log(`Ошибка в части ФИО: ${part}`);
+            return false;
+        }
+    }
+    
+    return true;
+}
 
 // Инициализация бота с расширенными сессиями
 const bot = new Telegraf(BOT_TOKEN);
@@ -314,7 +389,7 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
         message += `├ ОС: ${totalOsPlacement} ед.\n`;
         message += `└ РМ: ${totalRmPlacement} ед.\n\n`;
 
-        message += `📈 *ОБЩАЯ СТАТИСТIKA*\n`;
+        message += `📈 *ОБЩАЯ СТАТИСТИКА*\n`;
         message += `├ Дней с данными: ${daysWithData}\n`;
         message += `├ Средний отбор/день: ${daysWithData > 0 ? Math.round((totalRmSelection + totalOsSelection)/daysWithData) : 0} ед.\n`;
         message += `└ Среднее размещение/день: ${daysWithData > 0 ? Math.round((totalRmPlacement + totalOsPlacement)/daysWithData) : 0} ед.\n`;
@@ -554,46 +629,6 @@ async function getShiftData(fio) {
     }
 }
 
-// Функция для нормализации строк (замена Ё на Е)
-function normalizeString(str) {
-    if (!str) return '';
-    return str.normalize('NFD').replace(/Ё/g, 'Е').normalize('NFC');
-}
-
-// Функция валидации ФИО с улучшенной логикой
-function validateFIO(fio) {
-    // Удаляем лишние пробелы
-    fio = fio.trim().replace(/\s+/g, ' ');
-    
-    // Разбиваем на части
-    const parts = fio.split(' ');
-    
-    // Проверяем количество частей
-    if (parts.length !== 3) {
-        console.log('Ошибка: Неверное количество частей ФИО');
-        return false;
-    }
-    
-    // Проверяем первую букву каждой части
-    if (!parts.every(part => /^[А-ЯЁ]/.test(part))) {
-        console.log('Ошибка: Части ФИО должны начинаться с заглавной буквы');
-        return false;
-    }
-    
-    // Регулярное выражение для проверки каждой части
-    const regex = /^[А-ЯЁа-яё\-]+$/;
-    
-    // Проверяем каждую часть ФИО
-    for (let part of parts) {
-        if (!regex.test(part)) {
-            console.log(`Ошибка в части ФИО: ${part}`);
-            return false;
-        }
-    }
-    
-    return true;
-}
-
 // Глобальная обработка ошибок
 bot.catch(async (error, ctx) => {
     console.error('Произошла ошибка в боте:', error);
@@ -609,19 +644,25 @@ async function startBot() {
     try {
         console.log('Запуск бота...');
 
-        // На Render используем webhook
+        // Проверяем подключение к Google Sheets перед запуском бота
+        try {
+            const sheets = await safeConnectToSheet();
+            console.log('✅ Проверка подключения к Google Sheets успешна');
+        } catch (error) {
+            console.error('❌ Критическая ошибка: не удалось подключиться к Google Sheets');
+            console.error('ℹ️ Проверьте валидность GOOGLE_CREDENTIALS_BASE64');
+            process.exit(1);
+        }
+
         if (process.env.RENDER) {
             console.log('Запуск в режиме webhook (Render)');
             
-            // Устанавливаем webhook endpoint
             app.use(bot.webhookCallback('/telegram-webhook'));
             
-            // Запускаем сервер
             app.listen(PORT, () => {
                 console.log(`Server listening on port ${PORT}`);
             });
             
-            // Устанавливаем webhook
             const domain = process.env.RENDER_EXTERNAL_URL || `https://${process.env.RENDER_SERVICE_NAME}.onrender.com`;
             await bot.telegram.setWebhook(`${domain}/telegram-webhook`);
             
@@ -639,27 +680,13 @@ async function startBot() {
             });
         }
         
-        console.log('Telegram бот запущен успешно!');
+        console.log('✅ Telegram бот запущен успешно!');
         
     } catch (error) {
-        console.error('Ошибка при запуске бота:', error.message);
-        console.error('Детали ошибки:', error);
+        console.error('❌ Ошибка при запуске бота:', error.message);
         process.exit(1);
     }
 }
-
-// Graceful shutdown
-process.once('SIGINT', () => {
-    console.log('Остановка бота...');
-    bot.stop();
-    process.exit(0);
-});
-
-process.once('SIGTERM', () => {
-    console.log('Остановка бота...');
-    bot.stop();
-    process.exit(0);
-});
 
 // Запускаем бота
 startBot();
