@@ -172,14 +172,6 @@ function createMockSheets() {
     };
 }
 
-function getMockShiftData() {
-    return {
-        plannedShifts: 20 + Math.floor(Math.random() * 10),
-        extraShifts: Math.floor(Math.random() * 5),
-        absences: Math.floor(Math.random() * 3),
-        reinforcementShifts: Math.floor(Math.random() * 4)
-    };
-}
 
 function createEmptyDailyData() {
     const data = {};
