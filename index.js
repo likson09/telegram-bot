@@ -124,8 +124,34 @@ const bot = new Telegraf(BOT_TOKEN);
 bot.use((new LocalSession({ 
     database: 'sessions.json',
     storage: LocalSession.storageFileAsync,
-    property: 'session'
+    property: 'session',
+    state: {
+        currentData: null
+    }
 })).middleware());
+
+// Функция для безопасного редактирования сообщений
+async function safeEditMessage(ctx, text, markup = null) {
+    try {
+        if (markup) {
+            await ctx.editMessageText(text, { 
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: markup }
+            });
+        } else {
+            await ctx.editMessageText(text, { parse_mode: 'Markdown' });
+        }
+    } catch (error) {
+        if (error.description === 'Bad Request: message is not modified') {
+            return;
+        }
+        console.error('Ошибка редактирования сообщения:', error);
+        await ctx.reply(text, { 
+            parse_mode: 'Markdown',
+            reply_markup: markup ? { inline_keyboard: markup } : undefined
+        });
+    }
+}
 
 // Функция для создания главного меню
 function createMainMenu(shortFio, userId) {
@@ -172,7 +198,7 @@ bot.on('text', async (ctx) => {
     
     try {
         if (!validateFIO(fio)) {
-            await ctx.reply('❌ Некорректный формат ФИО. Отправьте в formatе: Фамилия Имя Отчество');
+            await ctx.reply('❌ Некорректный формат ФИО. Отправьте в формате: Фамилия Имя Отчество');
             return;
         }
         
@@ -325,6 +351,8 @@ async function getProductivityData(fio, year, month) {
         }
 
         return {
+            selectionData,
+            placementData,
             totalRmSelection,
             totalOsSelection,
             totalRmPlacement,
@@ -354,10 +382,10 @@ async function getShiftData(fio) {
             for (let j = 0; j < Math.min(row.length, 10); j++) {
                 if (row[j] && row[j].toString().trim() === fio) {
                     return {
-                        plannedShifts: parseInt(row[j+1] || 0),
-                        extraShifts: parseInt(row[j+2] || 0),
-                        absences: parseInt(row[j+3] || 0),
-                        reinforcementShifts: parseInt(row[j+4] || 0)
+                        plannedShifts: parseInt(row[0] || 0),
+                        extraShifts: parseInt(row[1] || 0),
+                        absences: parseInt(row[2] || 0),
+                        reinforcementShifts: parseInt(row[3] || 0)
                     };
                 }
             }
@@ -420,8 +448,6 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                         const monthName = monthDate.toLocaleString('ru', { month: 'long' });
                         const year = monthDate.getFullYear();
                         const monthIndex = monthDate.getMonth();
-                        
-                        console.log('Создаем кнопку:', { monthName, year, monthIndex });
                         
                         monthKeyboard.push([
                             { 
@@ -487,7 +513,6 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
 bot.action(/^month_/, async (ctx) => {
     try {
         console.log('✅ Обработчик месяца вызван');
-        console.log('callback_data:', ctx.callbackQuery.data);
         
         const parts = ctx.callbackQuery.data.split('_');
         if (parts.length < 5) {
@@ -525,6 +550,15 @@ bot.action(/^month_/, async (ctx) => {
         // Получаем данные производительности
         const productivityData = await getProductivityData(fullFio, year, month + 1);
         
+        // Сохраняем данные в сессию для детализации
+        ctx.session.currentData = {
+            selectionData: productivityData.selectionData,
+            placementData: productivityData.placementData,
+            month: month + 1,
+            year: year,
+            fullFio: fullFio
+        };
+
         const message = `📊 ПРОИЗВОДИТЕЛЬНОСТЬ ЗА ${monthName.toUpperCase()} ${year}\n` +
                        `👤 Сотрудник: ${fullFio}\n\n` +
                        `📦 ОТБОР ТОВАРА:\n` +
@@ -536,24 +570,99 @@ bot.action(/^month_/, async (ctx) => {
                        `📈 ОБЩАЯ СТАТИСТИКА:\n` +
                        `├ Дней с данными: ${productivityData.daysWithData}\n` +
                        `├ Средний отбор/день: ${productivityData.avgSelectionPerDay} ед.\n` +
-                       `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n` +
-                       `📅 Период: ${monthName} ${year}`;
-        
-        await ctx.editMessageText(message, {
-            reply_markup: { 
-                inline_keyboard: [
-                    [{ text: '↩️ Выбрать другой месяц', callback_data: `p_${shortFio}_${userId}` }],
-                    [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
-                ]
-            }
-        });
-        
+                       `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.`;
+
+        const detailKeyboard = [
+            [{ text: '📋 Детализировать по дням', callback_data: `detail_${month}_${year}_${shortFio}_${userId}` }],
+            [{ text: '↩️ Выбрать другой месяц', callback_data: `p_${shortFio}_${userId}` }],
+            [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
+        ];
+
+        await safeEditMessage(ctx, message, detailKeyboard);
         await ctx.answerCbQuery();
         console.log('✅ Сообщение успешно отправлено');
         
     } catch (error) {
         console.error('❌ Ошибка при выборе месяца:', error);
         await ctx.answerCbQuery('Ошибка при выборе месяца');
+    }
+});
+
+// Обработчик для детализации
+bot.action(/^detail_/, async (ctx) => {
+    try {
+        console.log('✅ Обработчик детализации вызван');
+        
+        const parts = ctx.callbackQuery.data.split('_');
+        if (parts.length < 5) {
+            console.log('❌ Неправильный формат callback_data:', parts);
+            await ctx.answerCbQuery('Ошибка формата');
+            return;
+        }
+        
+        const month = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
+        const shortFio = parts[3];
+        const userId = parts[4];
+        
+        const sessionData = ctx.session.currentData;
+        
+        if (!sessionData) {
+            await ctx.answerCbQuery('Данные не найдены');
+            return;
+        }
+
+        const { selectionData, placementData, fullFio } = sessionData;
+        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
+                           'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n`;
+        message += `👤 ${fullFio}\n`;
+        message += `📅 ${monthNames[month]} ${year}\n\n`;
+
+        let hasData = false;
+        
+        for (let day = 1; day <= 31; day++) {
+            const hasSelection = selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0;
+            const hasPlacement = placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0;
+            
+            if (hasSelection || hasPlacement) {
+                hasData = true;
+                message += `*${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.${year}*\n`;
+                
+                if (hasSelection) {
+                    message += `📦 Отбор: `;
+                    if (selectionData[`os_day_${day}`] > 0) message += `ОС=${selectionData[`os_day_${day}`]} `;
+                    if (selectionData[`rm_day_${day}`] > 0) message += `РМ=${selectionData[`rm_day_${day}`]}`;
+                    message += `\n`;
+                }
+                
+                if (hasPlacement) {
+                    message += `📋 Размещение: `;
+                    if (placementData[`os_day_${day}`] > 0) message += `ОС=${placementData[`os_day_${day}`]} `;
+                    if (placementData[`rm_day_${day}`] > 0) message += `РМ=${placementData[`rm_day_${day}`]}`;
+                    message += `\n`;
+                }
+                message += `\n`;
+            }
+        }
+
+        if (!hasData) {
+            message += `Нет данных за выбранный период\n`;
+        }
+
+        const backKeyboard = [
+            [{ text: '↩️ Назад к общей статистике', callback_data: `month_${month}_${year}_${shortFio}_${userId}` }],
+            [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
+        ];
+
+        await safeEditMessage(ctx, message, backKeyboard);
+        await ctx.answerCbQuery();
+        console.log('✅ Детализация отправлена');
+        
+    } catch (error) {
+        console.error('❌ Ошибка при детализации:', error);
+        await ctx.answerCbQuery('Ошибка при детализации');
     }
 });
 
