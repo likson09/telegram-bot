@@ -27,23 +27,35 @@ if (!SPREADSHEET_ID) {
 // Функция для загрузки Google credentials
 function loadGoogleCredentials() {
     try {
-        // Способ 1: Из файла (для разработки)
-        if (fs.existsSync('./google-credentials.json')) {
-            console.log('📁 Загружаем credentials из файла...');
-            const credentials = JSON.parse(fs.readFileSync('./google-credentials.json', 'utf8'));
-            return credentials;
-        }
+        console.log('🔍 Поиск Google credentials...');
         
-        // Способ 2: Из переменной окружения (для production)
+        // Основной способ: переменная GOOGLE_CREDENTIALS
         if (process.env.GOOGLE_CREDENTIALS) {
-            console.log('🔑 Загружаем credentials из переменной окружения...');
-            return JSON.parse(process.env.GOOGLE_CREDENTIALS);
+            console.log('✅ Обнаружена переменная GOOGLE_CREDENTIALS');
+            
+            try {
+                const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+                
+                // Проверяем обязательные поля
+                if (!credentials.private_key) {
+                    throw new Error('Отсутствует private_key в credentials');
+                }
+                if (!credentials.client_email) {
+                    throw new Error('Отсутствует client_email в credentials');
+                }
+                
+                console.log('✅ Credentials успешно загружены из переменной окружения');
+                return credentials;
+                
+            } catch (parseError) {
+                throw new Error(`Ошибка парсинга JSON: ${parseError.message}`);
+            }
         }
         
-        throw new Error('Google credentials не найдены. Создайте файл google-credentials.json или установите переменную GOOGLE_CREDENTIALS');
+        throw new Error('Google credentials не найдены. Используйте один из способов:\n1. Установите переменную GOOGLE_CREDENTIALS\n2. Установите переменную GOOGLE_CREDENTIALS_BASE64\n3. Создайте файл google-credentials.json');
         
     } catch (error) {
-        console.error('❌ Ошибка загрузки Google credentials:', error.message);
+        console.error('❌ Критическая ошибка:', error.message);
         process.exit(1);
     }
 }
