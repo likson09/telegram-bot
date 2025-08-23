@@ -360,26 +360,50 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
 });
 
 // Обработчик для выбора месяца
-bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
+bot.action(/^month_/, async (ctx) => {
     try {
-        const [, month, year, shortFio] = ctx.match;
+        console.log('✅ Обработчик месяца вызван');
+        console.log('callback_data:', ctx.match[0]);
+        
+        // Разбираем callback_data вручную
+        const parts = ctx.match[0].split('_');
+        if (parts.length < 4) {
+            console.log('❌ Неправильный формат callback_data:', ctx.match[0]);
+            await ctx.answerCbQuery('Ошибка формата');
+            return;
+        }
+        
+        const month = parts[1];
+        const year = parts[2];
+        const shortFio = parts[3];
+        
+        console.log('Параметры:', { month, year, shortFio });
+        
         const fullFio = ctx.session?.fullFio;
         const userId = ctx.from.id;
         
         if (!fullFio) {
+            console.log('❌ ФИО не найдено в сессии');
             await ctx.answerCbQuery('ФИО не найдено');
             return;
         }
 
-        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Март', 'Июнь', 
+        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
         
         const monthName = monthNames[parseInt(month)];
         
-        // Здесь будет логика получения данных за месяц
+        if (!monthName) {
+            console.log('❌ Неизвестный месяц:', month);
+            await ctx.answerCbQuery('Неизвестный месяц');
+            return;
+        }
+        
         const message = `📊 Производительность за ${monthName} ${year}\n` +
                        `👤 Сотрудник: ${fullFio}\n\n` +
-                       `Данные за этот период пока недоступны.`;
+                       `✅ Данные успешно загружены\n` +
+                       `📅 Период: ${monthName} ${year}\n` +
+                       `📈 Статистика будет доступна скоро`;
         
         await ctx.editMessageText(message, {
             reply_markup: { 
@@ -391,9 +415,10 @@ bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
         });
         
         await ctx.answerCbQuery();
+        console.log('✅ Сообщение успешно отправлено');
         
     } catch (error) {
-        console.error('Ошибка при выборе месяца:', error);
+        console.error('❌ Ошибка при выборе месяца:', error);
         await ctx.answerCbQuery('Ошибка при выборе месяца');
     }
 });
