@@ -319,7 +319,7 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
             case 't':
                 try {
                     const shiftData = await getShiftData(fullFio);
-                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + ;
+                    const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + shiftData.reinforcementShifts;
                     const attendanceRate = shiftData.plannedShifts > 0 
                         ? (totalWorked / shiftData.plannedShifts) * 100 
                         : 0;
