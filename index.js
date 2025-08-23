@@ -1,168 +1,128 @@
 const { Telegraf } = require('telegraf');
 const { google } = require('googleapis');
-const crypto = require('crypto');
 const fs = require('fs');
 const { session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const express = require('express');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// БЕЗОПАСНЫЕ ДАННЫЕ из переменных окружения
-// ЗАШИТЫЕ ДАННЫЕ
-const BOT_TOKEN = '8451305555:AAGIs89Hzl4UKidFRVHeiQaaj2Qs0STtJxI';
-const SPREADSHEET_ID = '1s1MZLWFcWZ2mkZJOECJ07KkZ9ETpODvcuQ9xGvVRLoQ';
-const GOOGLE_CREDENTIALS_BASE64 = process.env.GOOGLE_CREDENTIALS_BASE64;
+// Загрузка конфигурации из переменных окружения
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
-// Проверка наличия обязательных переменных
-if (!GOOGLE_CREDENTIALS_BASE64) {
-    console.error('❌ GOOGLE_CREDENTIALS_BASE64 не настроена');
+// Проверка обязательных переменных
+if (!BOT_TOKEN) {
+    console.error('❌ BOT_TOKEN не настроен в переменных окружения');
     process.exit(1);
 }
 
-if (!BOT_TOKEN || BOT_TOKEN.includes('ваш_токен')) {
-    console.error('❌ BOT_TOKEN не настроен');
+if (!SPREADSHEET_ID) {
+    console.error('❌ SPREADSHEET_ID не настроен в переменных окружения');
     process.exit(1);
 }
 
-// Функция для исправления формата приватного ключа
-function fixPrivateKey(privateKey) {
-    if (!privateKey) return privateKey;
-    
-    // Убедимся, что ключ имеет правильный формат
-    let fixedKey = privateKey
-        .replace(/\\n/g, '\n')
-        .replace(/-----BEGIN PRIVATE KEY-----/, '-----BEGIN PRIVATE KEY-----\n')
-        .replace(/-----END PRIVATE KEY-----/, '\n-----END PRIVATE KEY-----')
-        .replace(/\s+/g, '\n');
-
-    // Проверяем, что ключ начинается и заканчивается правильно
-    if (!fixedKey.includes('-----BEGIN PRIVATE KEY-----')) {
-        fixedKey = '-----BEGIN PRIVATE KEY-----\n' + fixedKey;
-    }
-    if (!fixedKey.includes('-----END PRIVATE KEY-----')) {
-        fixedKey = fixedKey + '\n-----END PRIVATE KEY-----';
-    }
-
-    return fixedKey;
-}
-
-// Подключение к Google Sheets через Service Account
-async function safeConnectToSheet() {
+// Функция для загрузки Google credentials
+function loadGoogleCredentials() {
     try {
-        console.log('Подключение к Google Sheets через Service Account...');
-
-        // Декодируем credentials из base64
-        const credentialsJson = Buffer.from(GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8');
-        let credentials;
+        // Способ 1: Из файла (для разработки)
+        if (fs.existsSync('./google-credentials.json')) {
+            console.log('📁 Загружаем credentials из файла...');
+            const credentials = JSON.parse(fs.readFileSync('./google-credentials.json', 'utf8'));
+            return credentials;
+        }
         
-        try {
-            credentials = JSON.parse(credentialsJson);
-        } catch (parseError) {
-            console.error('❌ Ошибка парсинга JSON credentials:', parseError.message);
-            throw new Error('Невалидный JSON в credentials');
+        // Способ 2: Из переменной окружения (для production)
+        if (process.env.GOOGLE_CREDENTIALS) {
+            console.log('🔑 Загружаем credentials из переменной окружения...');
+            return JSON.parse(process.env.GOOGLE_CREDENTIALS);
+        }
+        
+        throw new Error('Google credentials не найдены. Создайте файл google-credentials.json или установите переменную GOOGLE_CREDENTIALS');
+        
+    } catch (error) {
+        console.error('❌ Ошибка загрузки Google credentials:', error.message);
+        process.exit(1);
+    }
+}
+
+// Подключение к Google Sheets
+async function connectToGoogleSheets() {
+    try {
+        console.log('🔗 Подключение к Google Sheets...');
+        
+        const credentials = loadGoogleCredentials();
+        
+        // Проверяем обязательные поля
+        if (!credentials.client_email || !credentials.private_key) {
+            throw new Error('Невалидные credentials: отсутствует client_email или private_key');
         }
 
-        // Проверяем валидность credentials
-        if (!credentials.private_key || !credentials.client_email) {
-            throw new Error('Невалидные credentials: отсутствует private_key или client_email');
-        }
-
-        // Исправляем формат приватного ключа
-        credentials.private_key = fixPrivateKey(credentials.private_key);
-
-        console.log('Формат приватного ключа исправлен');
-
-        const auth = new google.auth.GoogleAuth({
-            credentials: credentials,
-            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        // Создаем аутентификацию
+        const auth = new google.auth.JWT({
+            email: credentials.client_email,
+            key: credentials.private_key,
+            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
         });
-        
-        const client = await auth.getClient();
-        const sheets = google.sheets({ version: 'v4', auth: client });
 
-        console.log('✅ Подключение через Service Account успешно');
+        // Проверяем подключение
+        await auth.authorize();
+        
+        const sheets = google.sheets({ version: 'v4', auth });
+        
+        console.log('✅ Подключение к Google Sheets успешно');
         return sheets;
         
     } catch (error) {
-        console.error('❌ Ошибка при подключении к Google Sheets:', error.message);
-        console.error('Детали ошибки:', error);
-        
-        throw new Error('Не удалось подключиться к Google Sheets');
+        console.error('❌ Ошибка подключения к Google Sheets:', error.message);
+        throw error;
     }
 }
 
-// Health check endpoint
+// Health check endpoints
 app.use(express.json());
 app.get('/', (req, res) => {
     res.json({ 
         status: 'Bot is running', 
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         service: 'Telegram Statistics Bot'
     });
 });
 
-app.get('/health', (req, res) => {
-    res.status(200).json({ 
-        status: 'OK', 
-        bot: 'running',
-        time: new Date().toISOString()
-    });
+app.get('/health', async (req, res) => {
+    try {
+        const sheets = await connectToGoogleSheets();
+        
+        // Проверяем доступ к таблице
+        await sheets.spreadsheets.get({
+            spreadsheetId: SPREADSHEET_ID
+        });
+        
+        res.status(200).json({ 
+            status: 'OK', 
+            bot: 'running',
+            sheets: 'connected',
+            time: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            status: 'ERROR', 
+            error: error.message,
+            time: new Date().toISOString()
+        });
+    }
 });
 
-// Функция для нормализации строк (замена Ё на Е)
-function normalizeString(str) {
-    if (!str) return '';
-    return str.normalize('NFD').replace(/Ё/g, 'Е').normalize('NFC');
-}
-
-// Функция валидации ФИО с улучшенной логикой
-function validateFIO(fio) {
-    // Удаляем лишние пробелы
-    fio = fio.trim().replace(/\s+/g, ' ');
-    
-    // Разбиваем на части
-    const parts = fio.split(' ');
-    
-    // Проверяем количество частей
-    if (parts.length !== 3) {
-        console.log('Ошибка: Неверное количество частей ФИО');
-        return false;
-    }
-    
-    // Проверяем первую букву каждой части
-    if (!parts.every(part => /^[А-ЯЁ]/.test(part))) {
-        console.log('Ошибка: Части ФИО должны начинаться с заглавной буквы');
-        return false;
-    }
-    
-    // Регулярное выражение для проверки каждой части
-    const regex = /^[А-ЯЁа-яё\-]+$/;
-    
-    // Проверяем каждую часть ФИО
-    for (let part of parts) {
-        if (!regex.test(part)) {
-            console.log(`Ошибка в части ФИО: ${part}`);
-            return false;
-        }
-    }
-    
-    return true;
-}
-
-// Инициализация бота с расширенными сессиями
+// Инициализация бота
 const bot = new Telegraf(BOT_TOKEN);
+
+// Middleware для сессий
 bot.use((new LocalSession({ 
     database: 'sessions.json',
     storage: LocalSession.storageFileAsync,
-    property: 'session',
-    state: {
-        fullFio: null,
-        step: null,
-        action: null,
-        currentData: null
-    }
+    property: 'session'
 })).middleware());
 
 // Функция для создания главного меню
@@ -178,94 +138,116 @@ function createMainMenu(shortFio, userId) {
     ];
 }
 
-// Функция для создания кнопки "Назад в меню"
-function createBackButton(shortFio, userId) {
-    return [
-        [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
-    ];
-}
-
-// Функция для безопасного редактирования сообщений
-async function safeEditMessage(ctx, text, markup = null) {
-    try {
-        if (markup) {
-            await ctx.editMessageText(text, { 
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: markup }
-            });
-        } else {
-            await ctx.editMessageText(text, { parse_mode: 'Markdown' });
-        }
-    } catch (error) {
-        if (error.description === 'Bad Request: message is not modified') {
-            return;
-        }
-        console.error('Ошибка редактирования сообщения:', error);
-        await ctx.reply(text, { 
-            parse_mode: 'Markdown',
-            reply_markup: markup ? { inline_keyboard: markup } : undefined
-        });
-    }
-}
-
 // Команда /start
 bot.start(async (ctx) => {
-    console.log('Получена команда /start');
+    console.log('Получена команда /start от пользователя:', ctx.from.id);
     try {
-        await ctx.reply('Привет! Отправьте ваше ФИО (Фамилия Имя Отчество) для получения статистики.');
+        await ctx.reply('Привет! 👋 Отправьте ваше ФИО (Фамилия Имя Отчество) для получения статистики.');
     } catch (error) {
         console.error('Ошибка при ответе на /start:', error);
     }
 });
 
+// Функция валидации ФИО
+function validateFIO(fio) {
+    const parts = fio.trim().replace(/\s+/g, ' ').split(' ');
+    return parts.length === 3 && parts.every(part => /^[А-ЯЁ][а-яё\-]*$/i.test(part));
+}
+
 // Обработчик текстовых сообщений (ФИО)
 bot.on('text', async (ctx) => {
-    if (ctx.message.text.startsWith('/')) {
-        return;
-    }
+    if (ctx.message.text.startsWith('/')) return;
 
-    let fio = ctx.message.text.trim().replace(/\s+/g, ' ').replace(/[^А-ЯЁа-яё\s]/g, '');
-    
-    console.log('Полученная строка ФИО:', fio);
+    const fio = ctx.message.text.trim();
+    console.log('Получено ФИО:', fio);
     
     try {
         if (!validateFIO(fio)) {
-            await ctx.reply('Некорректный формат ФИО. Отправьте в формате: Фамилия Имя Отчество');
+            await ctx.reply('❌ Некорректный формат ФИО. Отправьте в формате: Фамилия Имя Отчество');
             return;
         }
         
         ctx.session.fullFio = fio;
-        ctx.session.step = 'main_menu';
-        
         const [lastName, firstName, patronymic] = fio.split(' ');
         const shortFio = `${lastName.slice(0, 3)}${firstName.slice(0, 3)}${patronymic.slice(0, 3)}`;
         const userId = ctx.from.id;
         
-        await ctx.reply('Выберите раздел:', {
+        await ctx.reply('📊 Выберите раздел:', {
             reply_markup: { inline_keyboard: createMainMenu(shortFio, userId) }
         });
         
     } catch (error) {
-        console.error('Ошибка при обработке запроса:', error);
-        await ctx.reply('Произошла ошибка. Попробуйте позже.');
+        console.error('Ошибка при обработке ФИО:', error);
+        await ctx.reply('⚠️ Произошла ошибка. Попробуйте позже.');
     }
 });
 
-// Обработчик callback-запросов
-bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
+// Вспомогательные функции для работы с Google Sheets
+async function getSheetData(range) {
+    const sheets = await connectToGoogleSheets();
+    const result = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: range
+    });
+    return result.data.values || [];
+}
+
+async function getErrorCount(fio) {
     try {
-        const [, action, shortFio, userId] = ctx.match;
-        const fullFio = ctx.session?.fullFio;
+        const rows = await getSheetData('Ошибки!A:C');
+        const errors = rows.filter(row => row[0] === fio);
+        return errors.length;
+    } catch (error) {
+        console.error('Ошибка при получении ошибок:', error);
+        throw error;
+    }
+}
+
+async function getShiftData(fio) {
+    try {
+        const rows = await getSheetData('Табель!A:Z');
         
+        if (!rows || rows.length < 2) {
+            throw new Error('Данные табеля не найдены');
+        }
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            for (let j = 0; j < Math.min(row.length, 10); j++) {
+                if (row[j] && row[j].toString().trim() === fio) {
+                    return {
+                        plannedShifts: parseInt(row[0] || 0),
+                        extraShifts: parseInt(row[1] || 0),
+                        absences: parseInt(row[2] || 0),
+                        reinforcementShifts: parseInt(row[3] || 0)
+                    };
+                }
+            }
+        }
+        
+        throw new Error('Сотрудник не найден в табеле');
+        
+    } catch (error) {
+        console.error('Ошибка при получении данных табеля:', error);
+        throw error;
+    }
+}
+
+// Обработчик callback-запросов
+bot.action(/^(e|p|t|back)_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.match[0].split('_');
+        const fullFio = ctx.session?.fullFio;
+
         if (action === 'back') {
-            await safeEditMessage(ctx, 'Выберите раздел:', createMainMenu(shortFio, userId));
-            await ctx.answerCbQuery();
+            await ctx.editMessageText('📊 Выберите раздел:', {
+                reply_markup: { inline_keyboard: createMainMenu(shortFio, userId) }
+            });
             return;
         }
 
         if (!fullFio) {
-            await ctx.reply('ФИО не найдено. Пожалуйста, отправьте ФИО снова.');
-            await ctx.answerCbQuery();
+            await ctx.reply('❌ ФИО не найдено. Пожалуйста, отправьте ФИО снова.');
             return;
         }
 
@@ -273,37 +255,10 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
             case 'e':
                 try {
                     const errorCount = await getErrorCount(fullFio);
-                    await safeEditMessage(ctx, `Количество ошибок для ${fullFio}: ${errorCount}`, createBackButton(shortFio, userId));
+                    await ctx.editMessageText(`📊 Количество ошибок для ${fullFio}: ${errorCount}`);
                 } catch (error) {
-                    console.error('Ошибка при получении ошибок:', error);
-                    await ctx.reply('Не удалось получить данные об ошибках. Попробуйте позже.');
+                    await ctx.reply('❌ Не удалось получить данные об ошибках.');
                 }
-                break;
-                
-            case 'p':
-                const currentYear = new Date().getFullYear();
-                const currentMonth = new Date().getMonth();
-                
-                const monthKeyboard = [];
-                for (let i = 0; i < 6; i++) {
-                    const monthDate = new Date(currentYear, currentMonth - i, 1);
-                    const monthName = monthDate.toLocaleString('ru', { month: 'long' });
-                    const year = monthDate.getFullYear();
-                    
-                    monthKeyboard.push([
-                        { 
-                            text: `${monthName} ${year}`, 
-                            callback_data: `month_${monthDate.getMonth()}_${year}_${shortFio}`
-                        }
-                    ]);
-                }
-                
-                monthKeyboard.push([{ 
-                    text: '↩️ Назад в меню', 
-                    callback_data: `back_${shortFio}_${userId}` 
-                }]);
-                
-                await safeEditMessage(ctx, '📅 Выберите месяц:', monthKeyboard);
                 break;
                 
             case 't':
@@ -322,10 +277,9 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
                         `✅ Всего отработано: ${totalWorked} смен\n` +
                         `📈 Посещаемость: ${attendanceRate.toFixed(2)}%`;
 
-                    await safeEditMessage(ctx, message, createBackButton(shortFio, userId));
+                    await ctx.editMessageText(message);
                 } catch (error) {
-                    console.error('Ошибка при получении данных табеля:', error);
-                    await ctx.reply('Не удалось получить данные табеля. Попробуйте позже.');
+                    await ctx.reply('❌ Не удалось получить данные табеля.');
                 }
                 break;
         }
@@ -333,363 +287,63 @@ bot.action(/^(e|p|t|back)_([А-ЯЁа-яё]{9})_(\d+)$/, async (ctx) => {
         await ctx.answerCbQuery();
         
     } catch (error) {
-        console.error('Ошибка при обработке callback:', error);
+        console.error('Ошибка в callback:', error);
         await ctx.answerCbQuery();
     }
 });
 
-// Обработчик для выбора месяца
-bot.action(/^month_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
-    try {
-        const [, month, year, shortFio] = ctx.match;
-        const fullFio = ctx.session?.fullFio;
-        const userId = ctx.from.id;
-        
-        if (!fullFio) {
-            await ctx.answerCbQuery('ФИО не найдено');
-            return;
-        }
-
-        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
-                           'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-        
-        const monthName = monthNames[parseInt(month)];
-        const monthNumber = parseInt(month) + 1;
-        
-        const selectionData = await getSelectionData(fullFio, parseInt(year), monthNumber);
-        const placementData = await getPlacementData(fullFio, parseInt(year), monthNumber);
-
-        let totalRmSelection = 0;
-        let totalOsSelection = 0;
-        let totalRmPlacement = 0;
-        let totalOsPlacement = 0;
-        let daysWithData = 0;
-
-        for (let day = 1; day <= 31; day++) {
-            if (selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0 ||
-                placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0) {
-                daysWithData++;
-                totalRmSelection += selectionData[`rm_day_${day}`];
-                totalOsSelection += selectionData[`os_day_${day}`];
-                totalRmPlacement += placementData[`rm_day_${day}`];
-                totalOsPlacement += placementData[`os_day_${day}`];
-            }
-        }
-
-        ctx.session.currentData = { selectionData, placementData, month: monthNumber, year: parseInt(year), fullFio };
-
-        let message = `📊 *СТАТИСТИКА ПРОИЗВОДИТЕЛЬНОСТИ*\n`;
-        message += `👤 *${fullFio}*\n`;
-        message += `📅 *${monthName} ${year}*\n\n`;
-
-        message += `📦 *ОТБОР ТОВАРА*\n`;
-        message += `├ ОС: ${totalOsSelection} ед.\n`;
-        message += `└ РМ: ${totalRmSelection} ед.\n\n`;
-
-        message += `📋 *РАЗМЕЩЕНИЕ ТОВАРА*\n`;
-        message += `├ ОС: ${totalOsPlacement} ед.\n`;
-        message += `└ РМ: ${totalRmPlacement} ед.\n\n`;
-
-        message += `📈 *ОБЩАЯ СТАТИСТИКА*\n`;
-        message += `├ Дней с данными: ${daysWithData}\n`;
-        message += `├ Средний отбор/день: ${daysWithData > 0 ? Math.round((totalRmSelection + totalOsSelection)/daysWithData) : 0} ед.\n`;
-        message += `└ Среднее размещение/день: ${daysWithData > 0 ? Math.round((totalRmPlacement + totalOsPlacement)/daysWithData) : 0} ед.\n`;
-
-        const detailKeyboard = [
-            [{ text: '📋 Детализировать по дням', callback_data: `detail_${month}_${year}_${shortFio}` }],
-            [{ text: '↩️ Выбрать другой месяц', callback_data: `p_${shortFio}_${userId}` }],
-            [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
-        ];
-
-        await safeEditMessage(ctx, message, detailKeyboard);
-        await ctx.answerCbQuery();
-        
-    } catch (error) {
-        console.error('Ошибка при получении данных за месяц:', error);
-        await ctx.reply('Не удалось получить данные за месяц. Попробуйте позже.');
-        await ctx.answerCbQuery();
-    }
-});
-
-// Обработчик для детализации
-bot.action(/^detail_(\d+)_(\d+)_([А-ЯЁа-яё]{9})$/, async (ctx) => {
-    try {
-        const sessionData = ctx.session.currentData;
-        const userId = ctx.from.id;
-        
-        if (!sessionData) {
-            await ctx.answerCbQuery('Данные не найдены');
-            return;
-        }
-
-        const { selectionData, placementData, month, year, fullFio } = sessionData;
-        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
-                           'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-
-        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n`;
-        message += `👤 ${fullFio}\n`;
-        message += `📅 ${monthNames[month-1]} ${year}\n\n`;
-
-        let hasData = false;
-        
-        for (let day = 1; day <= 31; day++) {
-            const hasSelection = selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0;
-            const hasPlacement = placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0;
-            
-            if (hasSelection || hasPlacement) {
-                hasData = true;
-                message += `*${day.toString().padStart(2, '0')}.${month.toString().padStart(2, '0')}.${year}*\n`;
-                
-                if (hasSelection) {
-                    message += `📦 Отбор: `;
-                    if (selectionData[`os_day_${day}`] > 0) message += `ОС=${selectionData[`os_day_${day}`]} `;
-                    if (selectionData[`rm_day_${day}`] > 0) message += `РМ=${selectionData[`rm_day_${day}`]}`;
-                    message += `\n`;
-                }
-                
-                if (hasPlacement) {
-                    message += `📋 Размещение: `;
-                    if (placementData[`os_day_${day}`] > 0) message += `ОС=${placementData[`os_day_${day}`]} `;
-                    if (placementData[`rm_day_${day}`] > 0) message += `РМ=${placementData[`rm_day_${day}`]}`;
-                    message += `\n`;
-                }
-                message += `\n`;
-            }
-        }
-
-        if (!hasData) {
-            message += `Нет данных за выбранный период\n`;
-        }
-
-        const backKeyboard = [
-            [{ text: '↩️ Назад к общей статистике', callback_data: `month_${month-1}_${year}_${ctx.match[3]}` }],
-            [{ text: '↩️ Назад в меню', callback_data: `back_${ctx.match[3]}_${userId}` }]
-        ];
-
-        await safeEditMessage(ctx, message, backKeyboard);
-        await ctx.answerCbQuery();
-        
-    } catch (error) {
-        console.error('Ошибка при детализации:', error);
-        await ctx.reply('Не удалось получить детализированные данные. Попробуйте позже.');
-        await ctx.answerCbQuery();
-    }
-});
-
-// Вспомогательные функции для работы с данными
-async function getErrorCount(fio) {
-    try {
-        const sheets = await safeConnectToSheet();
-        const result = await sheets.spreadsheets.values.get({
-            spreadsheetId: SPREADSHEET_ID,
-            range: 'Ошибки!A:C'
-        });
-
-        const rows = result.data.values;
-        if (!rows || rows.length === 0) {
-            return 0;
-        }
-
-        const errors = rows.filter(row => row[0] === fio);
-        return errors.length;
-    } catch (error) {
-        console.error('Ошибка при получении количества ошибок:', error.message);
-        throw error;
-    }
-}
-
-async function getSelectionData(fio, year, month) {
-    try {
-        const sheets = await safeConnectToSheet();
-        const range = `Отбор!A:D`;
-        
-        const result = await sheets.spreadsheets.values.get({
-            spreadsheetId: SPREADSHEET_ID,
-            range: range
-        });
-        
-        const rows = result.data.values;
-        if (!rows) {
-            throw new Error('Данные отбора не найдены');
-        }
-        
-        const data = {};
-        
-        for (let day = 1; day <= 31; day++) {
-            data[`rm_day_${day}`] = 0;
-            data[`os_day_${day}`] = 0;
-        }
-        
-        const filteredData = rows.filter(row => {
-            if (row.length < 4) return false;
-            
-            const rowDate = new Date(row[1]);
-            return row[0] === fio && 
-                   rowDate.getFullYear() === year && 
-                   rowDate.getMonth() + 1 === month;
-        });
-        
-        filteredData.forEach(row => {
-            const day = new Date(row[1]).getDate();
-            const os = parseFloat(row[2]) || 0;
-            const rm = parseFloat(row[3]) || 0;
-            
-            data[`rm_day_${day}`] = rm;
-            data[`os_day_${day}`] = os;
-        });
-        
-        return data;
-        
-    } catch (error) {
-        console.error('Ошибка при получении данных отбора:', error.message);
-        throw error;
-    }
-}
-
-async function getPlacementData(fio, year, month) {
-    try {
-        const sheets = await safeConnectToSheet();
-        const range = `Размещение!A:D`;
-        
-        const result = await sheets.spreadsheets.values.get({
-            spreadsheetId: SPREADSHEET_ID,
-            range: range
-        });
-        
-        const rows = result.data.values;
-        if (!rows) {
-            throw new Error('Данные размещения не найдены');
-        }
-        
-        const data = {};
-        
-        for (let day = 1; day <= 31; day++) {
-            data[`rm_day_${day}`] = 0;
-            data[`os_day_${day}`] = 0;
-        }
-        
-        const filteredData = rows.filter(row => {
-            if (row.length < 4) return false;
-            
-            const rowDate = new Date(row[1]);
-            return row[0] === fio && 
-                   rowDate.getFullYear() === year && 
-                   rowDate.getMonth() + 1 === month;
-        });
-        
-        filteredData.forEach(row => {
-            const day = new Date(row[1]).getDate();
-            const os = parseFloat(row[2]) || 0;
-            const rm = parseFloat(row[3]) || 0;
-            
-            data[`rm_day_${day}`] = rm;
-            data[`os_day_${day}`] = os;
-        });
-        
-        return data;
-        
-    } catch (error) {
-        console.error('Ошибка при получении данных размещения:', error.message);
-        throw error;
-    }
-}
-
-async function getShiftData(fio) {
-    try {
-        const sheets = await safeConnectToSheet();
-        const result = await sheets.spreadsheets.values.get({
-            spreadsheetId: SPREADSHEET_ID,
-            range: 'Табель!A:Z'
-        });
-
-        const rows = result.data.values;
-        if (!rows || rows.length < 2) {
-            throw new Error('Данные табеля не найдены');
-        }
-
-        // Поиск сотрудника в таблице
-        for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            for (let j = 0; j < Math.min(row.length, 10); j++) {
-                if (row[j] && row[j].toString().trim() === fio) {
-                    return {
-                        plannedShifts: parseInt(row[0] || 0, 10),
-                        extraShifts: parseInt(row[1] || 0, 10),
-                        absences: parseInt(row[2] || 0, 10),
-                        reinforcementShifts: parseInt(row[3] || 0, 10)
-                    };
-                }
-            }
-        }
-        
-        throw new Error('Сотрудник не найден в табеле');
-        
-    } catch (error) {
-        console.error('Ошибка при получении данных табеля:', error.message);
-        throw error;
-    }
-}
-
-// Глобальная обработка ошибок
-bot.catch(async (error, ctx) => {
-    console.error('Произошла ошибка в боте:', error);
-    try {
-        await ctx.reply('Произошла непредвиденная ошибка. Попробуйте позже.');
-    } catch (err) {
-        console.error('Не удалось отправить сообщение об ошибке:', err);
-    }
+// Обработка ошибок
+bot.catch((error, ctx) => {
+    console.error('Ошибка бота:', error);
+    ctx.reply('❌ Произошла непредвиденная ошибка.');
 });
 
 // Запуск бота
 async function startBot() {
     try {
-        console.log('Запуск бота...');
-
-        // Проверяем подключение к Google Sheets перед запуском бота
+        console.log('🚀 Запуск Telegram бота...');
+        
+        // Проверяем подключение к Google Sheets
         try {
-            const sheets = await safeConnectToSheet();
-            console.log('✅ Проверка подключения к Google Sheets успешна');
+            await connectToGoogleSheets();
+            console.log('✅ Google Sheets подключен');
         } catch (error) {
-            console.error('❌ Критическая ошибка: не удалось подключиться к Google Sheets');
-            console.error('ℹ️ Проверьте валидность GOOGLE_CREDENTIALS_BASE64');
+            console.error('❌ Ошибка подключения к Google Sheets:', error.message);
             process.exit(1);
         }
 
         if (process.env.RENDER) {
-            console.log('Запуск в режиме webhook (Render)');
+            console.log('🌐 Запуск в режиме webhook...');
             
             app.use(bot.webhookCallback('/telegram-webhook'));
             
-            app.listen(PORT, () => {
-                console.log(`Server listening on port ${PORT}`);
+            app.listen(PORT, '0.0.0.0', () => {
+                console.log(`✅ Сервер запущен на порту ${PORT}`);
             });
             
-            const domain = process.env.RENDER_EXTERNAL_URL || `https://${process.env.RENDER_SERVICE_NAME}.onrender.com`;
+            const domain = process.env.RENDER_EXTERNAL_URL;
             await bot.telegram.setWebhook(`${domain}/telegram-webhook`);
+            console.log('✅ Webhook установлен');
             
-            console.log('Webhook установлен успешно');
         } else {
-            console.log('Запуск в режиме polling');
+            console.log('🔄 Запуск в режиме polling...');
             await bot.launch({
                 dropPendingUpdates: true,
-                allowedUpdates: ['message', 'callback_query'],
-                polling: {
-                    timeout: 10,
-                    limit: 100,
-                    allowedUpdates: ['message', 'callback_query']
-                }
+                polling: { timeout: 10, limit: 100 }
             });
         }
         
-        console.log('✅ Telegram бот запущен успешно!');
+        console.log('✅ Бот успешно запущен!');
         
     } catch (error) {
-        console.error('❌ Ошибка при запуске бота:', error.message);
+        console.error('❌ Ошибка запуска бота:', error);
         process.exit(1);
     }
 }
 
-// Запускаем бота
-startBot();
+// Graceful shutdown
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-console.log('Application started successfully');
+// Запускаем приложение
+startBot();
