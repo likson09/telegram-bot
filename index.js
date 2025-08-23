@@ -4,7 +4,6 @@ const fs = require('fs');
 const { session } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 const express = require('express');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,14 +28,12 @@ function loadGoogleCredentials() {
     try {
         console.log('🔍 Поиск Google credentials...');
         
-        // Основной способ: переменная GOOGLE_CREDENTIALS
         if (process.env.GOOGLE_CREDENTIALS) {
             console.log('✅ Обнаружена переменная GOOGLE_CREDENTIALS');
             
             try {
                 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
                 
-                // Проверяем обязательные поля
                 if (!credentials.private_key) {
                     throw new Error('Отсутствует private_key в credentials');
                 }
@@ -44,7 +41,7 @@ function loadGoogleCredentials() {
                     throw new Error('Отсутствует client_email в credentials');
                 }
                 
-                console.log('✅ Credentials успешно загружены из переменной окружения');
+                console.log('✅ Credentials успешно загружены');
                 return credentials;
                 
             } catch (parseError) {
@@ -52,7 +49,7 @@ function loadGoogleCredentials() {
             }
         }
         
-        throw new Error('Google credentials не найдены. Используйте один из способов:\n1. Установите переменную GOOGLE_CREDENTIALS\n2. Установите переменную GOOGLE_CREDENTIALS_BASE64\n3. Создайте файл google-credentials.json');
+        throw new Error('Google credentials не найдены');
         
     } catch (error) {
         console.error('❌ Критическая ошибка:', error.message);
@@ -67,19 +64,16 @@ async function connectToGoogleSheets() {
         
         const credentials = loadGoogleCredentials();
         
-        // Проверяем обязательные поля
         if (!credentials.client_email || !credentials.private_key) {
-            throw new Error('Невалидные credentials: отсутствует client_email или private_key');
+            throw new Error('Невалидные credentials');
         }
 
-        // Создаем аутентификацию
         const auth = new google.auth.JWT({
             email: credentials.client_email,
             key: credentials.private_key,
             scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
         });
 
-        // Проверяем подключение
         await auth.authorize();
         
         const sheets = google.sheets({ version: 'v4', auth });
@@ -106,11 +100,7 @@ app.get('/', (req, res) => {
 app.get('/health', async (req, res) => {
     try {
         const sheets = await connectToGoogleSheets();
-        
-        // Проверяем доступ к таблице
-        await sheets.spreadsheets.get({
-            spreadsheetId: SPREADSHEET_ID
-        });
+        await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
         
         res.status(200).json({ 
             status: 'OK', 
@@ -182,7 +172,7 @@ bot.on('text', async (ctx) => {
     
     try {
         if (!validateFIO(fio)) {
-            await ctx.reply('❌ Некорректный формат ФИО. Отправьте в формате: Фамилия Имя Отчество');
+            await ctx.reply('❌ Некорректный формат ФИО. Отправьте в formatе: Фамилия Имя Отчество');
             return;
         }
         
@@ -203,12 +193,17 @@ bot.on('text', async (ctx) => {
 
 // Вспомогательные функции для работы с Google Sheets
 async function getSheetData(range) {
-    const sheets = await connectToGoogleSheets();
-    const result = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: range
-    });
-    return result.data.values || [];
+    try {
+        const sheets = await connectToGoogleSheets();
+        const result = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: range
+        });
+        return result.data.values || [];
+    } catch (error) {
+        console.error('Ошибка при получении данных:', error);
+        return [];
+    }
 }
 
 async function getErrorCount(fio) {
@@ -222,6 +217,130 @@ async function getErrorCount(fio) {
     }
 }
 
+// Функция для получения данных отбора
+async function getSelectionData(fio, year, month) {
+    try {
+        const rows = await getSheetData('Отбор!A:D');
+        
+        if (!rows) {
+            throw new Error('Данные отбора не найдены');
+        }
+        
+        const data = {};
+        
+        for (let day = 1; day <= 31; day++) {
+            data[`rm_day_${day}`] = 0;
+            data[`os_day_${day}`] = 0;
+        }
+        
+        const filteredData = rows.filter(row => {
+            if (row.length < 4) return false;
+            
+            const rowDate = new Date(row[1]);
+            return row[0] === fio && 
+                   rowDate.getFullYear() === year && 
+                   rowDate.getMonth() + 1 === month;
+        });
+        
+        filteredData.forEach(row => {
+            const day = new Date(row[1]).getDate();
+            const os = parseFloat(row[2]) || 0;
+            const rm = parseFloat(row[3]) || 0;
+            
+            data[`rm_day_${day}`] = rm;
+            data[`os_day_${day}`] = os;
+        });
+        
+        return data;
+        
+    } catch (error) {
+        console.error('Ошибка при получении данных отбора:', error.message);
+        throw error;
+    }
+}
+
+// Функция для получения данных размещения
+async function getPlacementData(fio, year, month) {
+    try {
+        const rows = await getSheetData('Размещение!A:D');
+        
+        if (!rows) {
+            throw new Error('Данные размещения не найдены');
+        }
+        
+        const data = {};
+        
+        for (let day = 1; day <= 31; day++) {
+            data[`rm_day_${day}`] = 0;
+            data[`os_day_${day}`] = 0;
+        }
+        
+        const filteredData = rows.filter(row => {
+            if (row.length < 4) return false;
+            
+            const rowDate = new Date(row[1]);
+            return row[0] === fio && 
+                   rowDate.getFullYear() === year && 
+                   rowDate.getMonth() + 1 === month;
+        });
+        
+        filteredData.forEach(row => {
+            const day = new Date(row[1]).getDate();
+            const os = parseFloat(row[2]) || 0;
+            const rm = parseFloat(row[3]) || 0;
+            
+            data[`rm_day_${day}`] = rm;
+            data[`os_day_${day}`] = os;
+        });
+        
+        return data;
+        
+    } catch (error) {
+        console.error('Ошибка при получении данных размещения:', error.message);
+        throw error;
+    }
+}
+
+// Функция для получения данных производительности
+async function getProductivityData(fio, year, month) {
+    try {
+        const selectionData = await getSelectionData(fio, year, month);
+        const placementData = await getPlacementData(fio, year, month);
+
+        let totalRmSelection = 0;
+        let totalOsSelection = 0;
+        let totalRmPlacement = 0;
+        let totalOsPlacement = 0;
+        let daysWithData = 0;
+
+        for (let day = 1; day <= 31; day++) {
+            if (selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0 ||
+                placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0) {
+                daysWithData++;
+                totalRmSelection += selectionData[`rm_day_${day}`];
+                totalOsSelection += selectionData[`os_day_${day}`];
+                totalRmPlacement += placementData[`rm_day_${day}`];
+                totalOsPlacement += placementData[`os_day_${day}`];
+            }
+        }
+
+        return {
+            totalRmSelection,
+            totalOsSelection,
+            totalRmPlacement,
+            totalOsPlacement,
+            daysWithData,
+            avgSelectionPerDay: daysWithData > 0 ? Math.round((totalRmSelection + totalOsSelection) / daysWithData) : 0,
+            avgPlacementPerDay: daysWithData > 0 ? Math.round((totalRmPlacement + totalOsPlacement) / daysWithData) : 0
+        };
+        
+    } catch (error) {
+        console.error('Ошибка при получении данных производительности:', error.message);
+        throw error;
+    }
+}
+
+// Функция для получения данных табеля
 async function getShiftData(fio) {
     try {
         const rows = await getSheetData('Табель!A:Z');
@@ -235,10 +354,10 @@ async function getShiftData(fio) {
             for (let j = 0; j < Math.min(row.length, 10); j++) {
                 if (row[j] && row[j].toString().trim() === fio) {
                     return {
-                        plannedShifts: parseInt(row[0] || 0),
-                        extraShifts: parseInt(row[1] || 0),
-                        absences: parseInt(row[2] || 0),
-                        reinforcementShifts: parseInt(row[3] || 0)
+                        plannedShifts: parseInt(row[j+1] || 0),
+                        extraShifts: parseInt(row[j+2] || 0),
+                        absences: parseInt(row[j+3] || 0),
+                        reinforcementShifts: parseInt(row[j+4] || 0)
                     };
                 }
             }
@@ -255,8 +374,11 @@ async function getShiftData(fio) {
 // Обработчик callback-запросов
 bot.action(/^(e|p|t|back)_/, async (ctx) => {
     try {
-        const [action, shortFio, userId] = ctx.match[0].split('_');
+        const callbackData = ctx.callbackQuery.data;
+        const [action, shortFio, userId] = callbackData.split('_');
         const fullFio = ctx.session?.fullFio;
+
+        console.log('Обработчик вызван:', { action, shortFio, userId });
 
         if (action === 'back') {
             await ctx.editMessageText('📊 Выберите раздел:', {
@@ -289,7 +411,6 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                 
             case 'p':
                 try {
-                    // Создаем клавиатуру для выбора месяца
                     const currentYear = new Date().getFullYear();
                     const currentMonth = new Date().getMonth();
                     
@@ -298,11 +419,14 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                         const monthDate = new Date(currentYear, currentMonth - i, 1);
                         const monthName = monthDate.toLocaleString('ru', { month: 'long' });
                         const year = monthDate.getFullYear();
+                        const monthIndex = monthDate.getMonth();
+                        
+                        console.log('Создаем кнопку:', { monthName, year, monthIndex });
                         
                         monthKeyboard.push([
                             { 
                                 text: `${monthName} ${year}`, 
-                                callback_data: `month_${monthDate.getMonth()}_${year}_${shortFio}`
+                                callback_data: `month_${monthIndex}_${year}_${shortFio}_${userId}`
                             }
                         ]);
                     }
@@ -363,24 +487,23 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
 bot.action(/^month_/, async (ctx) => {
     try {
         console.log('✅ Обработчик месяца вызван');
-        console.log('callback_data:', ctx.match[0]);
+        console.log('callback_data:', ctx.callbackQuery.data);
         
-        // Разбираем callback_data вручную
-        const parts = ctx.match[0].split('_');
-        if (parts.length < 4) {
-            console.log('❌ Неправильный формат callback_data:', ctx.match[0]);
+        const parts = ctx.callbackQuery.data.split('_');
+        if (parts.length < 5) {
+            console.log('❌ Неправильный формат callback_data:', parts);
             await ctx.answerCbQuery('Ошибка формата');
             return;
         }
         
-        const month = parts[1];
-        const year = parts[2];
+        const month = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
         const shortFio = parts[3];
+        const userId = parts[4];
         
-        console.log('Параметры:', { month, year, shortFio });
+        console.log('Параметры:', { month, year, shortFio, userId });
         
         const fullFio = ctx.session?.fullFio;
-        const userId = ctx.from.id;
         
         if (!fullFio) {
             console.log('❌ ФИО не найдено в сессии');
@@ -391,7 +514,7 @@ bot.action(/^month_/, async (ctx) => {
         const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
         
-        const monthName = monthNames[parseInt(month)];
+        const monthName = monthNames[month];
         
         if (!monthName) {
             console.log('❌ Неизвестный месяц:', month);
@@ -399,11 +522,22 @@ bot.action(/^month_/, async (ctx) => {
             return;
         }
         
-        const message = `📊 Производительность за ${monthName} ${year}\n` +
+        // Получаем данные производительности
+        const productivityData = await getProductivityData(fullFio, year, month + 1);
+        
+        const message = `📊 ПРОИЗВОДИТЕЛЬНОСТЬ ЗА ${monthName.toUpperCase()} ${year}\n` +
                        `👤 Сотрудник: ${fullFio}\n\n` +
-                       `✅ Данные успешно загружены\n` +
-                       `📅 Период: ${monthName} ${year}\n` +
-                       `📈 Статистика будет доступна скоро`;
+                       `📦 ОТБОР ТОВАРА:\n` +
+                       `├ ОС: ${productivityData.totalOsSelection} ед.\n` +
+                       `└ РМ: ${productivityData.totalRmSelection} ед.\n\n` +
+                       `📋 РАЗМЕЩЕНИЕ ТОВАРА:\n` +
+                       `├ ОС: ${productivityData.totalOsPlacement} ед.\n` +
+                       `└ РМ: ${productivityData.totalRmPlacement} ед.\n\n` +
+                       `📈 ОБЩАЯ СТАТИСТИКА:\n` +
+                       `├ Дней с данными: ${productivityData.daysWithData}\n` +
+                       `├ Средний отбор/день: ${productivityData.avgSelectionPerDay} ед.\n` +
+                       `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n` +
+                       `📅 Период: ${monthName} ${year}`;
         
         await ctx.editMessageText(message, {
             reply_markup: { 
@@ -434,13 +568,11 @@ async function startBot() {
     try {
         console.log('🚀 Запуск Telegram бота...');
         
-        // Проверяем подключение к Google Sheets
         try {
             await connectToGoogleSheets();
             console.log('✅ Google Sheets подключен');
         } catch (error) {
             console.error('❌ Ошибка подключения к Google Sheets:', error.message);
-            process.exit(1);
         }
 
         if (process.env.RENDER) {
@@ -453,8 +585,12 @@ async function startBot() {
             });
             
             const domain = process.env.RENDER_EXTERNAL_URL;
-            await bot.telegram.setWebhook(`${domain}/telegram-webhook`);
-            console.log('✅ Webhook установлен');
+            if (domain) {
+                await bot.telegram.setWebhook(`${domain}/telegram-webhook`);
+                console.log('✅ Webhook установлен');
+            } else {
+                console.log('❌ RENDER_EXTERNAL_URL не установлен');
+            }
             
         } else {
             console.log('🔄 Запуск в режиме polling...');
