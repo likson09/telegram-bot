@@ -2709,8 +2709,8 @@ bot.action(/^month_detail_/, async (ctx) => {
         });
         
         // Безопасный парсинг с очисткой от нечисловых символов
-        const month = parseInt(parts[2].replace(/[^\d]/g, '').trim());
-        const year = parseInt(parts[3].replace(/[^\d]/g, '').trim());
+        const month = parseInt(parts[3].replace(/[^\d]/g, '').trim());
+        const year = parseInt(parts[4].replace(/[^\d]/g, '').trim());
         
         // Детальная отладка после парсинга
         console.log('🔍 Parsed values:', {
