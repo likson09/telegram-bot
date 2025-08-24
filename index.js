@@ -643,27 +643,6 @@ function formatDateShort(dateString) {
     }
 }
 
-function parseMonthCallbackData(callbackData) {
-    const parts = callbackData.split('_');
-    
-    if (parts.length < 3) {
-        throw new Error('Неверный формат callback данных');
-    }
-    
-    const month = parseInt(parts[1]);
-    const year = parseInt(parts[2]);
-    
-    if (isNaN(month) || isNaN(year)) {
-        throw new Error('Неверные параметры даты');
-    }
-    
-    // Проверка валидности месяца
-    if (month < 0 || month > 11) {
-        throw new Error('Неверный номер месяца');
-    }
-    
-    return { month, year };
-}
 
 function formatTime(timeString) {
     if (!timeString) return '??:??';
@@ -2709,8 +2688,8 @@ bot.action(/^month_detail_/, async (ctx) => {
         });
         
         // Безопасный парсинг с очисткой от нечисловых символов
-        const month = parseInt(parts[3].replace(/[^\d]/g, '').trim());
-        const year = parseInt(parts[4].replace(/[^\d]/g, '').trim());
+        const month = parseInt(parts[2].replace(/[^\d]/g, '').trim()); // parts[2] 
+        const year = parseInt(parts[3].replace(/[^\d]/g, '').trim());  // parts[3]
         
         // Детальная отладка после парсинга
         console.log('🔍 Parsed values:', {
