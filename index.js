@@ -234,6 +234,13 @@ function createSection(title, content) {
     return `▫️ *${title}:*\n${content}\n`;
 }
 
+// Функция для создания прогресс-бара
+function createProgressBar(percentage, width = 10) {
+    const filled = Math.round((percentage / 100) * width);
+    const empty = width - filled;
+    return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${percentage.toFixed(1)}%`;
+}
+
 // Команда /start
 bot.start(async (ctx) => {
     console.log('Получена команда /start от пользователя:', ctx.from.id);
@@ -251,7 +258,7 @@ bot.start(async (ctx) => {
     }
 });
 
-// Обработчик для смены ФИО
+// Обработчик для смене ФИО
 bot.action(/^change_fio_/, async (ctx) => {
     try {
         await ctx.editMessageText('📝 *Отправьте ваше ФИО заново:*\n(Фамилия Имя Отчество)', { 
@@ -497,7 +504,9 @@ async function getShiftData(fio) {
                         plannedShifts: parseInt(row[0] || 0),
                         extraShifts: parseInt(row[1] || 0),
                         absences: parseInt(row[2] || 0),
-                        reinforcementShifts: parseInt(row[3] || 0)
+                        reinforcementShifts: parseInt(row[3] || 0),
+                        sickLeaves: parseInt(row[4] || 0),
+                        vacations: parseInt(row[5] || 0)
                     };
                 }
             }
@@ -609,19 +618,44 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                 try {
                     const shiftData = await getShiftData(fullFio);
                     const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + shiftData.reinforcementShifts;
-                    const attendanceRate = shiftData.plannedShifts > 0 
-                        ? (totalWorked / shiftData.plannedShifts) * 100 
+                    const totalAbsences = shiftData.absences + shiftData.sickLeaves + shiftData.vacations;
+                    const totalScheduled = shiftData.plannedShifts;
+                    const attendanceRate = totalScheduled > 0 
+                        ? (totalWorked / totalScheduled) * 100 
                         : 0;
 
-                    const message = `📅 *ТАБЕЛЬНАЯ СТАТИСТИКА*\n\n` +
-                                  `👤 *Сотрудник:* ${fullFio}\n\n` +
-                                  createSection('По графику', `${shiftData.plannedShifts} смен`) +
-                                  createSection('Дополнительные смены', `${shiftData.extraShifts}`) +
-                                  createSection('Прогулы', `${shiftData.absences}`) +
-                                  createSection('Усиления', `${shiftData.reinforcementShifts}`) +
-                                  createSection('Всего отработано', `${totalWorked} смен`) +
-                                  createSection('Посещаемость', `${attendanceRate.toFixed(1)}%`) +
-                                  `\n📊 *Общая эффективность:* ${attendanceRate >= 95 ? '✅ Высокая' : attendanceRate >= 85 ? '⚠️ Средняя' : '❌ Низкая'}`;
+                    // Создаем красивый формат табельной статистики
+                    const message = `📊 *ТАБЕЛЬНАЯ СТАТИСТИКА*\n\n` +
+                                  `👤 *Сотрудник:* ${fullFio}\n` +
+                                  `📅 *Период:* текущий месяц\n\n` +
+                                  
+                                  `📈 *ОСНОВНЫЕ ПОКАЗАТЕЛИ*\n` +
+                                  `├ ${createProgressBar(attendanceRate)}\n` +
+                                  `├ Отработано: ${totalWorked} из ${totalScheduled} смен\n` +
+                                  `└ Эффективность: ${attendanceRate >= 95 ? '✅ Высокая' : attendanceRate >= 85 ? '⚠️ Средняя' : '❌ Низкая'}\n\n` +
+                                  
+                                  `📋 *ДЕТАЛИЗАЦИЯ СМЕН*\n` +
+                                  `┌───────────────────────────────┐\n` +
+                                  `│ 📅 По графику:    ${shiftData.plannedShifts.toString().padStart(3)} │\n` +
+                                  `│ ➕ Доп. смены:    ${shiftData.extraShifts.toString().padStart(3)} │\n` +
+                                  `│ 💪 Усиления:      ${shiftData.reinforcementShifts.toString().padStart(3)} │\n` +
+                                  `├───────────────────────────────┤\n` +
+                                  `│ ✅ Всего отработано: ${totalWorked.toString().padStart(3)} │\n` +
+                                  `└───────────────────────────────┘\n\n` +
+                                  
+                                  `📉 *ОТСУТСТВИЯ*\n` +
+                                  `┌───────────────────────────────┐\n` +
+                                  `│ ❌ Прогулы:       ${shiftData.absences.toString().padStart(3)} │\n` +
+                                  `│ 🏥 Больничные:    ${shiftData.sickLeaves.toString().padStart(3)} │\n` +
+                                  `│ 🏖️ Отпуска:        ${shiftData.vacations.toString().padStart(3)} │\n` +
+                                  `├───────────────────────────────┤\n` +
+                                  `│ ❗ Всего отсутствий: ${totalAbsences.toString().padStart(3)} │\n` +
+                                  `└───────────────────────────────┘\n\n` +
+                                  
+                                  `📊 *СТАТИСТИКА*\n` +
+                                  `• Заполненность графика: ${((totalWorked / (totalWorked + totalAbsences)) * 100 || 0).toFixed(1)}%\n` +
+                                  `• Коэффициент присутствия: ${(attendanceRate).toFixed(1)}%\n` +
+                                  `• Дополнительная нагрузка: ${shiftData.extraShifts > 0 ? '+' + shiftData.extraShifts : 'нет'}`;
 
                     await ctx.editMessageText(message, {
                         parse_mode: 'Markdown',
@@ -757,7 +791,7 @@ bot.action(/^detail_/, async (ctx) => {
         }
 
         const { selectionData, placementData, fullFio } = sessionData;
-        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
+        const monthNames = ['Январь', 'Февраль', 'Март', 'Апель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
         let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n\n`;
@@ -766,8 +800,6 @@ bot.action(/^detail_/, async (ctx) => {
         message += `*Ежедневная статистика:*\n\n`;
 
         let hasData = false;
-        let dayCounter = 0;
-        const maxDaysPerMessage = 10; // Ограничиваем количество дней в одном сообщении
         
         for (let day = 1; day <= 31; day++) {
             const hasSelection = selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0;
@@ -775,12 +807,6 @@ bot.action(/^detail_/, async (ctx) => {
             
             if (hasSelection || hasPlacement) {
                 hasData = true;
-                dayCounter++;
-                
-                if (dayCounter > maxDaysPerMessage) {
-                    message += `\n📝 *И еще ${31 - maxDaysPerMessage} дней с данными...*\n`;
-                    break;
-                }
                 
                 message += `📅 *${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.*\n`;
                 
