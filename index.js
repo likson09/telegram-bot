@@ -219,31 +219,39 @@ async function getAvailableShifts() {
         const rows = result.data.values || [];
         if (rows.length < 2) return [];
         
-        // Получаем заголовки для отладки
-        const headers = rows[0];
-        console.log('Заголовки таблицы Подработки:', headers);
+        const shifts = [];
         
-        return rows.slice(1).filter(row => {
-            // Проверяем, что строка имеет достаточно данных
-            if (row.length < 7) return false;
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length === 0) continue;
             
-            // Проверяем статус - если нет статуса, считаем активной
-            const status = row[6] || 'active';
-            return status === 'active';
-        }).map((row, index) => {
-            // Заполняем недостающие данные значениями по умолчанию
-            return {
-                id: row[0] || (index + 1).toString(),
+            // Создаем объект смены с значениями по умолчанию
+            const shift = {
+                id: row[0]?.toString() || i.toString(),
                 date: row[1] || 'Не указана',
                 time: row[2] || 'Не указано',
                 department: row[3] || 'Не указан',
                 requiredPeople: parseInt(row[4] || 0),
-                signedUp: row[5] ? row[5].split(',').filter(Boolean) : [],
+                signedUp: [],
                 status: row[6] || 'active',
-                pendingApproval: row[7] ? row[7].split(',').filter(Boolean) : [],
-                approved: row[8] ? row[8].split(',').filter(Boolean) : []
+                pendingApproval: [],
+                approved: []
             };
-        });
+            
+            // Обрабатываем списки
+            if (row[5]) shift.signedUp = row[5].split(',').filter(Boolean);
+            if (row[7]) shift.pendingApproval = row[7].split(',').filter(Boolean);
+            if (row[8]) shift.approved = row[8].split(',').filter(Boolean);
+            
+            // Фильтруем только активные смены
+            if (shift.status === 'active') {
+                shifts.push(shift);
+            }
+        }
+        
+        console.log(`Найдено ${shifts.length} активных смен`);
+        return shifts;
+        
     } catch (error) {
         console.error('Ошибка при получении смен:', error);
         return [];
@@ -263,7 +271,7 @@ async function updateShiftInSheet(shift) {
         
         for (let i = 1; i < rows.length; i++) {
             if (rows[i][0] && rows[i][0].toString() === shift.id.toString()) {
-                rowIndex = i;
+                rowIndex = i + 1; // +1 потому что строки в Google Sheets начинаются с 1
                 break;
             }
         }
@@ -273,24 +281,24 @@ async function updateShiftInSheet(shift) {
         }
         
         // Обновляем данные смены
-        await googleSheetsClient.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Подработки!A:I',
-      valueInputOption: 'RAW',
-      resource: {
-        values: [[
-            newId,
-            shiftData.date,
-            shiftData.time,
-            shiftData.department,
-            shiftData.requiredPeople,
-            '', // signedUp
-            'active', // status - ДОБАВЛЕНО!
-            '', // pendingApproval
-            ''  // approved
-        ]]
-    }
-});
+        await googleSheetsClient.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: `Подработки!A${rowIndex}:I${rowIndex}`,
+            valueInputOption: 'RAW',
+            resource: {
+                values: [[
+                    shift.id,
+                    shift.date,
+                    shift.time,
+                    shift.department,
+                    shift.requiredPeople,
+                    shift.signedUp.join(','),
+                    shift.status,
+                    shift.pendingApproval.join(','),
+                    shift.approved.join(',')
+                ]]
+            }
+        });
         
         return true;
     } catch (error) {
@@ -298,6 +306,47 @@ async function updateShiftInSheet(shift) {
         throw error;
     }
 }
+
+// ДОБАВЬТЕ эту функцию для отладки (она поможет понять структуру данных):
+async function debugShiftTable() {
+    try {
+        const result = await googleSheetsClient.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Подработки!A:I'
+        });
+        
+        const rows = result.data.values || [];
+        console.log('=== ДЕБАГ ТАБЛИЦЫ ПОДРАБОТОК ===');
+        console.log('Заголовки:', rows[0] || 'Нет заголовков');
+        
+        for (let i = 1; i < rows.length; i++) {
+            console.log(`Строка ${i}:`, rows[i]);
+        }
+        console.log('=== КОНЕЦ ДЕБАГА ===');
+        
+        return rows;
+    } catch (error) {
+        console.error('Ошибка при отладке таблицы:', error);
+        return [];
+    }
+}
+
+// ДОБАВЬТЕ команду для отладки
+bot.command('debug_table', async (ctx) => {
+    try {
+        if (!await isAdmin(ctx.from.id)) {
+            await ctx.reply('❌ Недостаточно прав!');
+            return;
+        }
+
+        const rows = await debugShiftTable();
+        await ctx.reply(`✅ Таблица проанализирована. Всего строк: ${rows.length}`);
+    } catch (error) {
+        console.error('Ошибка при отладке:', error);
+        await ctx.reply('❌ Ошибка при отладке таблицы');
+    }
+});
+
 
 async function signUpForShift(userId, userName, shiftId) {
     try {
@@ -1417,6 +1466,8 @@ bot.action('work_shifts_list', async (ctx) => {
         const availableShifts = await getAvailableShifts();
         ctx.session.availableShifts = availableShifts;
         
+        console.log('Загружено смен:', availableShifts.length);
+        
         if (availableShifts.length === 0) {
             await ctx.editMessageText('📭 *На данный момент нет доступных смен для подработки.*', {
                 parse_mode: 'Markdown',
@@ -1434,7 +1485,7 @@ bot.action('work_shifts_list', async (ctx) => {
 
         shiftsKeyboard.push([{ text: '↩️ Назад', callback_data: 'menu_show_work' }]);
 
-        await ctx.editMessageText('📋 *ДОСТУПНЫЕ СМЕНЫ ДЛЯ ПОДРАБОТКИ:*', {
+        await ctx.editMessageText(`📋 *ДОСТУПНЫЕ СМЕНЫ ДЛЯ ПОДРАБОТКИ:*\n\nНайдено ${availableShifts.length} активных смен`, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: shiftsKeyboard }
         });
@@ -1450,20 +1501,30 @@ bot.action(/^shift_detail_/, async (ctx) => {
         const [action, shiftId] = ctx.callbackQuery.data.split('_');
         const { availableShifts, userFio } = ctx.session;
 
+        console.log('Поиск смены ID:', shiftId, 'в массиве из', availableShifts.length, 'смен');
+        
+        // Логируем все доступные смены для отладки
+        availableShifts.forEach((s, i) => {
+            console.log(`Смена ${i}: ID=${s.id}, Дата=${s.date}, Статус=${s.status}`);
+        });
+
         // Ищем смену в сохраненном массиве
         const shift = availableShifts.find(s => s.id.toString() === shiftId.toString());
         
         if (!shift) {
+            console.log('Смена не найдена! Доступные ID:', availableShifts.map(s => s.id));
             await ctx.answerCbQuery('❌ Смена не найдена');
             return;
         }
+        
+        console.log('Найдена смена:', shift);
         
         const shiftInfo = `📅 *ДЕТАЛИ СМЕНЫ*\n\n` +
                          `🗓️ *Дата:* ${shift.date}\n` +
                          `⏰ *Время:* ${shift.time}\n` +
                          `🏢 *Отдел:* ${shift.department}\n` +
                          `👥 *Требуется человек:* ${shift.requiredPeople}\n` +
-                         `✅ *Записалось:* ${shift.approved.length}/${shift.requiredPeople}\n` +
+                         `✅ *Подтверждено:* ${shift.approved.length}/${shift.requiredPeople}\n` +
                          `⏳ *Ожидают подтверждения:* ${shift.pendingApproval.length}\n\n`;
 
         const detailKeyboard = [
@@ -1484,7 +1545,7 @@ bot.action(/^shift_detail_/, async (ctx) => {
         });
         
     } catch (error) {
-        console.error('Ошибка при получении деталей сменя:', error);
+        console.error('Ошибка при получении деталей смены:', error);
         await ctx.answerCbQuery('❌ Ошибка при загрузке деталей смены');
     }
 });
