@@ -445,7 +445,7 @@ async function updateShiftInSheet(shift) {
         
         for (let i = 1; i < rows.length; i++) {
             if (rows[i][0] && rows[i][0].toString() === shift.id.toString()) {
-                rowIndex = i + 1; // +1 потому что строки в Google Sheets начинаются с 1
+                rowIndex = i + 1;
                 break;
             }
         }
@@ -466,17 +466,18 @@ async function updateShiftInSheet(shift) {
                     shift.time,
                     shift.department,
                     shift.requiredPeople,
-                    shift.signedUp.join(','),
+                    shift.signedUp.join(','),      // Колонка F
                     shift.status,
-                    shift.pendingApproval.join(','),
-                    shift.approved.join(',')
+                    shift.pendingApproval.join(','), // Колонка H
+                    shift.approved.join(',')       // Колонка I
                 ]]
             }
         });
         
+        console.log(`✅ Смена ${shift.id} обновлена в таблице`);
         return true;
     } catch (error) {
-        console.error('Ошибка при обновлении смены:', error);
+        console.error('❌ Ошибка при обновлении смены:', error);
         throw error;
     }
 }
@@ -508,6 +509,8 @@ async function debugTableStructure() {
 
 async function signUpForShift(userId, userName, shiftId) {
     try {
+        console.log(`📝 Попытка записи пользователя ${userName} на смену ${shiftId}`);
+        
         const shifts = await getAvailableShifts();
         const shift = shifts.find(s => s.id.toString() === shiftId.toString());
         
@@ -515,7 +518,13 @@ async function signUpForShift(userId, userName, shiftId) {
             throw new Error('Смена не найдена');
         }
         
-        if (shift.signedUp.includes(userName) || shift.pendingApproval.includes(userName) || shift.approved.includes(userName)) {
+        console.log(`📊 Статус смены перед записью:`, {
+            approved: shift.approved,
+            pending: shift.pendingApproval,
+            signedUp: shift.signedUp
+        });
+        
+        if (shift.pendingApproval.includes(userName) || shift.approved.includes(userName)) {
             throw new Error('Вы уже подали заявку на эту смену');
         }
         
@@ -527,9 +536,11 @@ async function signUpForShift(userId, userName, shiftId) {
         shift.pendingApproval.push(userName);
         await updateShiftInSheet(shift);
         
+        console.log(`✅ Пользователь ${userName} добавлен в pendingApproval смены ${shiftId}`);
+        
         return true;
     } catch (error) {
-        console.error('Ошибка при записи на смену:', error);
+        console.error('❌ Ошибка при записи на смену:', error);
         throw error;
     }
 }
@@ -1863,7 +1874,19 @@ bot.action('work_my_applications', async (ctx) => {
     try {
         const fullFio = ctx.session.userFio;
 
+        console.log(`🔍 Поиск заявок для пользователя: ${fullFio}`);
+        
         const applications = await getUserApplications(fullFio);
+
+        console.log(`📋 Найдено заявок: ${applications.length}`);
+        applications.forEach((app, index) => {
+            console.log(`Заявка ${index + 1}:`, {
+                date: app.date,
+                time: app.time,
+                department: app.department,
+                status: app.approved.includes(fullFio) ? 'approved' : 'pending'
+            });
+        });
 
         if (applications.length === 0) {
             await ctx.editMessageText('📭 *У вас нет активных заявок на подработку.*', {
@@ -1876,10 +1899,11 @@ bot.action('work_my_applications', async (ctx) => {
         let message = '📋 *МОИ ЗАЯВКИ НА ПОДРАБОТКУ:*\n\n';
         
         applications.forEach((app, index) => {
-            const status = app.approved.includes(fullFio) ? '✅ Подтверждена' : 
-                          app.pendingApproval.includes(fullFio) ? '⏳ Ожидает подтверждения' : '❓ Неизвестный статус';
+            const status = app.approved.includes(fullFio) ? 
+                '✅ Подтверждена администратором' : 
+                '⏳ Ожидает подтверждения';
             
-            message += `${index + 1}. ${app.date} ${app.time} - ${app.department}\n`;
+            message += `${index + 1}. *${app.date} ${app.time}* - ${app.department}\n`;
             message += `   👥 ${app.approved.length}/${app.requiredPeople} человек\n`;
             message += `   📝 Статус: ${status}\n\n`;
         });
@@ -1890,7 +1914,7 @@ bot.action('work_my_applications', async (ctx) => {
         });
         
     } catch (error) {
-        console.error('Ошибка при получении заявок:', error);
+        console.error('❌ Ошибка при получении заявок:', error);
         await ctx.answerCbQuery('❌ Ошибка при загрузке заявок');
     }
 });
