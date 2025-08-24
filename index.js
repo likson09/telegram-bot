@@ -319,7 +319,7 @@ bot.on('text', async (ctx) => {
                            `📊 *Выберите раздел для просмотра статистики:*\n\n` +
                            `▫️ *📊 Ошибки* - количество рабочих ошибок\n` +
                            `▫️ *📅 Табель* - информация о сменах\n` +
-                           `▫️ *🚀 Производительность* - показатели эффективности`;
+                           `▫️ *🚀 Производительность*`;
         
         await ctx.reply(menuMessage, {
             parse_mode: 'Markdown',
@@ -716,8 +716,7 @@ bot.action(/^month_/, async (ctx) => {
                        `├ Дней с данными: ${productivityData.daysWithData}\n` +
                        `├ Средний отбор/день: ${productivityData.avgSelectionPerDay} ед.\n` +
                        `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n` +
-                       `📊 *Эффективность:* ${productivityData.avgSelectionPerDay > 1000 ? '✅ Высокая' : productivityData.avgSelectionPerDay > 500 ? '⚠️ Средняя' : '❌ Низкая'}`;
-
+                       '';
         const detailKeyboard = [
             [{ text: '📋 Детализировать по дням', callback_data: `detail_${month}_${year}_${shortFio}_${userId}` }],
             [{ text: '↩️ Выбрать другой месяц', callback_data: `p_${shortFio}_${userId}` }],
