@@ -1380,8 +1380,8 @@ bot.on('text', async (ctx) => {
         return;
     }
 
-    // Обработка действий администратора
-    if (ctx.session.adminAction) {
+    // Обработка действий администратора (только если действие действительно активно)
+    if (ctx.session.adminAction && (ctx.session.adminAction === 'add' || ctx.session.adminAction === 'remove')) {
         try {
             const userId = parseInt(ctx.message.text);
             
