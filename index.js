@@ -820,6 +820,33 @@ bot.command('debug_structure', async (ctx) => {
     }
 });
 
+bot.command('debug_applications', async (ctx) => {
+    try {
+        if (!await isAdmin(ctx.from.id)) {
+            await ctx.reply('❌ Недостаточно прав!');
+            return;
+        }
+
+        const shifts = await getAvailableShifts();
+        
+        let debugInfo = '🔍 *ДЕБАГ ЗАЯВОК:*\n\n';
+        
+        shifts.forEach((shift, index) => {
+            debugInfo += `*Смена ${index + 1}:* ${shift.date} ${shift.time} (${shift.department})\n`;
+            debugInfo += `👥 Нужно: ${shift.requiredPeople}, Подтверждено: ${shift.approved.length}, Ожидают: ${shift.pendingApproval.length}\n`;
+            debugInfo += `✅ Подтверждены: ${shift.approved.join(', ') || 'нет'}\n`;
+            debugInfo += `⏳ Ожидают: ${shift.pendingApproval.join(', ') || 'нет'}\n`;
+            debugInfo += `📝 Записаны: ${shift.signedUp.join(', ') || 'нет'}\n\n`;
+        });
+
+        await ctx.reply(debugInfo, { parse_mode: 'Markdown' });
+        
+    } catch (error) {
+        console.error('Ошибка при отладке заявок:', error);
+        await ctx.reply('❌ Ошибка при отладке заявок');
+    }
+});
+
 // Команда /podrabotka для создания смен
 bot.command('podrabotka', async (ctx) => {
     try {
