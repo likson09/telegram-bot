@@ -1941,7 +1941,7 @@ bot.action(/^month_/, async (ctx) => {
                        `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n`;
         
         const detailKeyboard = [
-            [{ text: '📋 Детализировать по дням', callback_data: `detail_${month}_${year}` }],
+            [{ text: '📋 Детализировать по дням', callback_data: `month_detail_${month}_${year}` }],
             [{ text: '↩️ Выбрать другой месяц', callback_data: 'menu_show_productivity' }],
             [{ text: '↩️ Назад в меню', callback_data: 'menu_back_main' }]
         ];
@@ -1959,16 +1959,20 @@ bot.action(/^month_/, async (ctx) => {
 });
 
 // Обработчик для детализации
-bot.action(/^detail_/, async (ctx) => {
+bot.action(/^month_detail_/, async (ctx) => {
     try {
-        const parts = ctx.callbackQuery.data.split('_');
-        if (parts.length < 3) {
+        const callbackData = ctx.callbackQuery.data;
+        console.log('📨 Получен callback_data для детализации:', callbackData);
+        
+        // Извлекаем month и year
+        const parts = callbackData.replace('month_detail_', '').split('_');
+        if (parts.length < 2) {
             await ctx.answerCbQuery('Ошибка формата');
             return;
         }
         
-        const month = parseInt(parts[1]);
-        const year = parseInt(parts[2]);
+        const month = parseInt(parts[0]);
+        const year = parseInt(parts[1]);
         
         const sessionData = ctx.session.currentData;
         
