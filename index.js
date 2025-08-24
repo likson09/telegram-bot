@@ -390,6 +390,10 @@ function createMainMenu(shortFio, userId, fio) {
             { 
                 text: '🚀 Производительность', 
                 callback_data: `p_${shortFio}_${userId}` 
+            },
+            { 
+                text: '💼 Подработки', 
+                callback_data: `work_${shortFio}_${userId}` 
             }
         ],
         [
@@ -522,6 +526,34 @@ bot.action(/^change_fio_/, async (ctx) => {
     }
 });
 
+// Обработчик для меню подработок
+bot.action(/^work_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const workMenu = [
+            [
+                { text: '📋 Доступные смены', callback_data: `shifts_list_${shortFio}_${userId}` },
+                { text: '📝 Мои заявки', callback_data: `my_applications_${shortFio}_${userId}` }
+            ],
+            [
+                { text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }
+            ]
+        ];
+
+        await ctx.editMessageText(`💼 *СИСТЕМА ПОДРАБОТОК*\n\n👤 Сотрудник: ${fullFio}`, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: workMenu }
+        });
+    } catch (error) {
+        console.error('Ошибка при открытии меню подработок:', error);
+        await ctx.editMessageText('❌ Не удалось открыть меню подработок.', {
+            reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+        });
+    }
+});
+
 // Функция валидации ФИО
 function validateFIO(fio) {
     const parts = fio.trim().replace(/\s+/g, ' ').split(' ');
@@ -533,89 +565,92 @@ bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
 
     // Обработка создания смены через команду /podrabotka
-    if (ctx.session.creatingShift) {
-        try {
-            const text = ctx.message.text.trim();
-            
-            if (!ctx.session.shiftData.date) {
-                if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) {
-                    await ctx.reply('❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ\nПример: 15.01.2024');
-                    return;
-                }
-                ctx.session.shiftData.date = text;
-                await ctx.reply('✅ Дата сохранена.\n⏰ Теперь введите время смены (формат: ЧЧ:ММ-ЧЧ:ММ)\nПример: 14:00-22:00');
+if (ctx.session.creatingShift) {
+    try {
+        const text = ctx.message.text.trim();
+        
+        if (!ctx.session.shiftData.date) {
+            if (!/^\d{2}\.\d{2}\.\d{4}$/.test(text)) {
+                await ctx.reply('❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ\nПример: 15.01.2024');
                 return;
             }
-            
-            if (!ctx.session.shiftData.time) {
-                if (!/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(text)) {
-                    await ctx.reply('❌ Неверный формат времени. Используйте ЧЧ:ММ-ЧЧ:ММ\nПример: 14:00-22:00');
-                    return;
-                }
-                ctx.session.shiftData.time = text;
-                await ctx.reply('✅ Время сохранено.\n🏢 Теперь введите отдел или место работы\nПример: Склад или Торговый зал');
+            ctx.session.shiftData.date = text;
+            await ctx.reply('✅ Дата сохранена.\n⏰ Теперь введите время смены (формат: ЧЧ:ММ-ЧЧ:ММ)\nПример: 14:00-22:00');
+            return;
+        }
+        
+        if (!ctx.session.shiftData.time) {
+            if (!/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(text)) {
+                await ctx.reply('❌ Неверный формат времени. Используйте ЧЧ:ММ-ЧЧ:ММ\nПример: 14:00-22:00');
                 return;
             }
-            
-            if (!ctx.session.shiftData.department) {
-                ctx.session.shiftData.department = text;
-                await ctx.reply('✅ Отдел сохранен.\n👥 Теперь введите количество требуемых человек (только цифру)\nПример: 3');
+            ctx.session.shiftData.time = text;
+            await ctx.reply('✅ Время сохранено.\n🏢 Теперь введите отдел или место работы\nПример: Склад или Торговый зал');
+            return;
+        }
+        
+        if (!ctx.session.shiftData.department) {
+            ctx.session.shiftData.department = text;
+            await ctx.reply('✅ Отдел сохранен.\n👥 Теперь введите количество требуемых человек (только цифру)\nПример: 3');
+            return;
+        }
+        
+        if (!ctx.session.shiftData.requiredPeople) {
+            const peopleCount = parseInt(text);
+            if (isNaN(peopleCount) || peopleCount <= 0) {
+                await ctx.reply('❌ Неверное количество. Введите число больше 0\nПример: 3');
                 return;
             }
+            ctx.session.shiftData.requiredPeople = peopleCount;
             
-            if (!ctx.session.shiftData.requiredPeople) {
-                const peopleCount = parseInt(text);
-                if (isNaN(peopleCount) || peopleCount <= 0) {
-                    await ctx.reply('❌ Неверное количество. Введите число больше 0\nПример: 3');
-                    return;
+            // Сохраняем данные перед сбросом сессии
+            const shiftData = { ...ctx.session.shiftData };
+            
+            // Создаем смену
+            const sheets = await connectToGoogleSheets();
+            const shifts = await getAvailableShifts();
+            const newId = shifts.length > 0 ? Math.max(...shifts.map(s => parseInt(s.id))) + 1 : 1;
+            
+            await sheets.spreadsheets.values.append({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Подработки!A:G',
+                valueInputOption: 'RAW',
+                resource: {
+                    values: [[
+                        newId,
+                        shiftData.date,
+                        shiftData.time,
+                        shiftData.department,
+                        shiftData.requiredPeople,
+                        '',
+                        'active'
+                    ]]
                 }
-                ctx.session.shiftData.requiredPeople = peopleCount;
-                
-                // Создаем смену
-                const sheets = await connectToGoogleSheets();
-                const shifts = await getAvailableShifts();
-                const newId = shifts.length > 0 ? Math.max(...shifts.map(s => parseInt(s.id))) + 1 : 1;
-                
-                await sheets.spreadsheets.values.append({
-                    spreadsheetId: SPREADSHEET_ID,
-                    range: 'Подработки!A:G',
-                    valueInputOption: 'RAW',
-                    resource: {
-                        values: [[
-                            newId,
-                            ctx.session.shiftData.date,
-                            ctx.session.shiftData.time,
-                            ctx.session.shiftData.department,
-                            ctx.session.shiftData.requiredPeople,
-                            '',
-                            'active'
-                        ]]
-                    }
-                });
-                
-                // Сбрасываем сессию
-                ctx.session.creatingShift = false;
-                ctx.session.shiftData = {};
-                
-                await ctx.reply(
-                    '✅ *СМЕНА УСПЕШНО СОЗДАНА!*\n\n' +
-                    `📅 Дата: ${ctx.session.shiftData.date}\n` +
-                    `⏰ Время: ${ctx.session.shiftData.time}\n` +
-                    `🏢 Отдел: ${ctx.session.shiftData.department}\n` +
-                    `👥 Нужно человек: ${ctx.session.shiftData.requiredPeople}\n\n` +
-                    'Теперь сотрудники могут записываться на эту смену! 🚀',
-                    { parse_mode: 'Markdown' }
-                );
-            }
+            });
             
-        } catch (error) {
-            console.error('Ошибка при создании смены:', error);
-            await ctx.reply('❌ Ошибка при создании смены. Попробуйте снова.');
+            // Сбрасываем сессию
             ctx.session.creatingShift = false;
             ctx.session.shiftData = {};
+            
+            await ctx.reply(
+                '✅ *СМЕНА УСПЕШНО СОЗДАНА!*\n\n' +
+                `📅 Дата: ${shiftData.date}\n` +
+                `⏰ Время: ${shiftData.time}\n` +
+                `🏢 Отдел: ${shiftData.department}\n` +
+                `👥 Нужно человек: ${shiftData.requiredPeople}\n\n` +
+                'Теперь сотрудники могут записываться на эту смену! 🚀',
+                { parse_mode: 'Markdown' }
+            );
         }
-        return;
+        
+    } catch (error) {
+        console.error('Ошибка при создании смены:', error);
+        await ctx.reply('❌ Ошибка при создании смены. Попробуйте снова.');
+        ctx.session.creatingShift = false;
+        ctx.session.shiftData = {};
     }
+    return;
+}
 
     // Обработка действий администратора
     if (ctx.session.adminAction) {
@@ -1160,6 +1195,139 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
     } catch (error) {
         console.error('Ошибка в callback:', error);
         await ctx.answerCbQuery();
+    }
+});
+
+// 4. Добавляем обработчики для просмотра смен и заявок
+bot.action(/^shifts_list_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const availableShifts = await getAvailableShifts();
+        
+        if (availableShifts.length === 0) {
+            await ctx.editMessageText('📭 *На данный момент нет доступных смен для подработки.*', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]] }
+            });
+            return;
+        }
+
+        const shiftsKeyboard = availableShifts.map(shift => [
+            { 
+                text: `📅 ${shift.date} ${shift.time} (${shift.department})`, 
+                callback_data: `shift_detail_${shift.id}_${shortFio}_${userId}`
+            }
+        ]);
+
+        shiftsKeyboard.push([{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]);
+
+        await ctx.editMessageText('📋 *ДОСТУПНЫЕ СМЕНЫ ДЛЯ ПОДРАБОТКИ:*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: shiftsKeyboard }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении списка смен:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке смен');
+    }
+});
+
+bot.action(/^shift_detail_/, async (ctx) => {
+    try {
+        const [action, shiftId, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const shift = await getShiftById(shiftId);
+        if (!shift) {
+            await ctx.answerCbQuery('❌ Смена не найдена');
+            return;
+        }
+
+        const shiftInfo = `📅 *ДЕТАЛИ СМЕНЫ*\n\n` +
+                         `🗓️ *Дата:* ${shift.date}\n` +
+                         `⏰ *Время:* ${shift.time}\n` +
+                         `🏢 *Отдел:* ${shift.department}\n` +
+                         `👥 *Требуется человек:* ${shift.requiredPeople}\n` +
+                         `✅ *Записалось:* ${shift.signedUp.length}/${shift.requiredPeople}\n\n`;
+
+        const detailKeyboard = [
+            [
+                { 
+                    text: '📝 Записаться на смену', 
+                    callback_data: `signup_shift_${shiftId}_${shortFio}_${userId}`
+                }
+            ],
+            [
+                { text: '↩️ К списку смен', callback_data: `shifts_list_${shortFio}_${userId}` }
+            ]
+        ];
+
+        await ctx.editMessageText(shiftInfo, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: detailKeyboard }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении деталей смены:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке деталей смены');
+    }
+});
+
+bot.action(/^signup_shift_/, async (ctx) => {
+    try {
+        const [action, shiftId, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const success = await signUpForShift(userId, fullFio, shiftId);
+        
+        if (success) {
+            await ctx.answerCbQuery('✅ Вы успешно записаны на смену!');
+            
+            await ctx.editMessageText('✅ *ВЫ УСПЕШНО ЗАПИСАНЫ НА СМЕНУ!*\n\nОжидайте подтверждения от администратора.', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+            });
+        }
+        
+    } catch (error) {
+        console.error('Ошибка при записи на смену:', error);
+        await ctx.answerCbQuery(`❌ ${error.message}`);
+    }
+});
+
+bot.action(/^my_applications_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const applications = await getUserApplications(fullFio);
+
+        if (applications.length === 0) {
+            await ctx.editMessageText('📭 *У вас нет активных заявок на подработку.*', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]] }
+            });
+            return;
+        }
+
+        let message = '📋 *МОИ ЗАЯВКИ НА ПОДРАБОТКУ:*\n\n';
+        
+        applications.forEach((app, index) => {
+            message += `${index + 1}. ${app.date} ${app.time} - ${app.department}\n`;
+            message += `   👥 ${app.signedUp.length}/${app.requiredPeople} человек\n`;
+            message += `   📝 Статус: активна\n\n`;
+        });
+
+        await ctx.editMessageText(message, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]] }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении заявок:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке заявок');
     }
 });
 
