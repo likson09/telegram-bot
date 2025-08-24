@@ -331,23 +331,6 @@ async function debugShiftTable() {
     }
 }
 
-// ДОБАВЬТЕ команду для отладки
-bot.command('debug_table', async (ctx) => {
-    try {
-        if (!await isAdmin(ctx.from.id)) {
-            await ctx.reply('❌ Недостаточно прав!');
-            return;
-        }
-
-        const rows = await debugShiftTable();
-        await ctx.reply(`✅ Таблица проанализирована. Всего строк: ${rows.length}`);
-    } catch (error) {
-        console.error('Ошибка при отладке:', error);
-        await ctx.reply('❌ Ошибка при отладке таблицы');
-    }
-});
-
-
 async function signUpForShift(userId, userName, shiftId) {
     try {
         const shifts = await getAvailableShifts();
@@ -701,6 +684,22 @@ bot.action('menu_change_fio', async (ctx) => {
     } catch (error) {
         console.error('Ошибка при смене ФИО:', error);
         await ctx.answerCbQuery('⚠️ Ошибка при смене ФИО');
+    }
+});
+
+// ДОБАВЬТЕ команду для отладки
+bot.command('debug_table', async (ctx) => {
+    try {
+        if (!await isAdmin(ctx.from.id)) {
+            await ctx.reply('❌ Недостаточно прав!');
+            return;
+        }
+
+        const rows = await debugShiftTable();
+        await ctx.reply(`✅ Таблица проанализирована. Всего строк: ${rows.length}`);
+    } catch (error) {
+        console.error('Ошибка при отладке:', error);
+        await ctx.reply('❌ Ошибка при отладке таблицы');
     }
 });
 
