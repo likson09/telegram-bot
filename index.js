@@ -87,6 +87,44 @@ async function connectToGoogleSheets() {
     }
 }
 
+// Функция для проверки наличия сотрудника в таблицах
+async function checkEmployeeExists(fio) {
+    try {
+        console.log(`🔍 Проверка наличия сотрудника: ${fio}`);
+        const sheets = await connectToGoogleSheets();
+        
+        // Проверяем во всех основных таблицах
+        const tablesToCheck = ['Ошибки!A:A', 'Табель!A:Z', 'Отбор!A:A', 'Размещение!A:A'];
+        
+        for (const range of tablesToCheck) {
+            try {
+                const result = await sheets.spreadsheets.values.get({
+                    spreadsheetId: SPREADSHEET_ID,
+                    range: range
+                });
+                
+                const rows = result.data.values || [];
+                const found = rows.some(row => row.some(cell => cell && cell.toString().trim() === fio));
+                
+                if (found) {
+                    console.log(`✅ Сотрудник найден в таблице: ${range.split('!')[0]}`);
+                    return true;
+                }
+            } catch (error) {
+                console.warn(`⚠️ Ошибка при проверке таблицы ${range}:`, error.message);
+                continue;
+            }
+        }
+        
+        console.log(`❌ Сотрудник не найден ни в одной таблице: ${fio}`);
+        return false;
+        
+    } catch (error) {
+        console.error('❌ Ошибка при проверке сотрудника:', error.message);
+        throw new Error('Ошибка при проверке данных таблиц');
+    }
+}
+
 // Health check endpoints
 app.use(express.json());
 app.get('/', (req, res) => {
@@ -202,6 +240,13 @@ bot.on('text', async (ctx) => {
             return;
         }
         
+        // Проверяем наличие сотрудника в таблицах
+        const employeeExists = await checkEmployeeExists(fio);
+        if (!employeeExists) {
+            await ctx.reply('❌ По данному сотруднику информации не найдено, попробуйте другое ФИО');
+            return;
+        }
+        
         ctx.session.fullFio = fio;
         const [lastName, firstName, patronymic] = fio.split(' ');
         const shortFio = `${lastName.slice(0, 3)}${firstName.slice(0, 3)}${patronymic.slice(0, 3)}`;
@@ -213,7 +258,7 @@ bot.on('text', async (ctx) => {
         
     } catch (error) {
         console.error('Ошибка при обработке ФИО:', error);
-        await ctx.reply('⚠️ Произошла ошибка. Попробуйте позже.');
+        await ctx.reply('⚠️ Произошла ошибка при проверке данных. Попробуйте позже.');
     }
 });
 
@@ -228,7 +273,7 @@ async function getSheetData(range) {
         return result.data.values || [];
     } catch (error) {
         console.error('Ошибка при получении данных:', error);
-        return [];
+        throw new Error('Не удалось получить данные из таблицы');
     }
 }
 
@@ -239,7 +284,7 @@ async function getErrorCount(fio) {
         return errors.length;
     } catch (error) {
         console.error('Ошибка при получении ошибок:', error);
-        throw error;
+        throw new Error('Не удалось получить данные об ошибках');
     }
 }
 
@@ -281,7 +326,7 @@ async function getSelectionData(fio, year, month) {
         
     } catch (error) {
         console.error('Ошибка при получении данных отбора:', error.message);
-        throw error;
+        throw new Error('Не удалось получить данные отбора');
     }
 }
 
@@ -323,7 +368,7 @@ async function getPlacementData(fio, year, month) {
         
     } catch (error) {
         console.error('Ошибка при получении данных размещения:', error.message);
-        throw error;
+        throw new Error('Не удалось получить данные размещения');
     }
 }
 
@@ -364,7 +409,7 @@ async function getProductivityData(fio, year, month) {
         
     } catch (error) {
         console.error('Ошибка при получении данных производительности:', error.message);
-        throw error;
+        throw new Error('Не удалось получить данные производительности');
     }
 }
 
@@ -395,7 +440,7 @@ async function getShiftData(fio) {
         
     } catch (error) {
         console.error('Ошибка при получении данных табеля:', error);
-        throw error;
+        throw new Error('Не удалось получить данные табеля');
     }
 }
 
@@ -564,7 +609,7 @@ bot.action(/^month_/, async (ctx) => {
                        `📦 ОТБОР ТОВАРА:\n` +
                        `├ ОС: ${productivityData.totalOsSelection} ед.\n` +
                        `└ РМ: ${productivityData.totalRmSelection} ед.\n\n` +
-                       `📋 РАЗМЕЩЕНИЕ ТОВАРА:\n` +
+                       `📋 РАМЕЩЕНИЕ ТОВАРА:\n` +
                        `├ ОС: ${productivityData.totalOsPlacement} ед.\n` +
                        `└ РМ: ${productivityData.totalRmPlacement} ед.\n\n` +
                        `📈 ОБЩАЯ СТАТИСТИКА:\n` +
@@ -584,7 +629,10 @@ bot.action(/^month_/, async (ctx) => {
         
     } catch (error) {
         console.error('❌ Ошибка при выборе месяца:', error);
-        await ctx.answerCbQuery('Ошибка при выборе месяца');
+        await ctx.editMessageText('❌ Не удалось получить данные производительности. Попробуйте позже.', {
+            reply_markup: { inline_keyboard: createBackButton(parts[3], parts[4]) }
+        });
+        await ctx.answerCbQuery();
     }
 });
 
@@ -662,7 +710,10 @@ bot.action(/^detail_/, async (ctx) => {
         
     } catch (error) {
         console.error('❌ Ошибка при детализации:', error);
-        await ctx.answerCbQuery('Ошибка при детализации');
+        await ctx.editMessageText('❌ Не удалось получить детализированные данные. Попробуйте позже.', {
+            reply_markup: { inline_keyboard: createBackButton(parts[3], parts[4]) }
+        });
+        await ctx.answerCbQuery();
     }
 });
 
