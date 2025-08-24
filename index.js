@@ -2149,7 +2149,7 @@ bot.action(/^shift_detail_/, async (ctx) => {
         // Проверяем статусы пользователя
         const userStatus = [];
         if (shift.approved.includes(userFio)) {
-            userStatus.push('✅ *Ваша заявка подтверждена администратором*');
+            userStatus.push('✅ *Ваша заявка подтверждена руководителем*');
         } else if (shift.pendingApproval.includes(userFio)) {
             userStatus.push('⏳ *Ваша заявка на рассмотрении*');
         } else if (shift.signedUp.includes(userFio)) {
@@ -2231,9 +2231,9 @@ bot.action(/^shift_signup_/, async (ctx) => {
         const success = await signUpForShift(ctx.from.id, userFio, shiftId);
         
         if (success) {
-            await ctx.answerCbQuery('✅ Заявка подана! Ожидайте подтверждения администратора.');
+            await ctx.answerCbQuery('✅ Заявка подана! Ожидайте подтверждения руководителя.');
             
-            await ctx.editMessageText('✅ *ЗАЯВКА ПОДАНА!*\n\nОжидайте подтверждения от администратора.', {
+            await ctx.editMessageText('✅ *ЗАЯВКА ПОДАНА!*\n\nОжидайте подтверждения от руководителя.', {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: createBackButton() }
             });
@@ -2275,7 +2275,7 @@ bot.action('work_my_applications', async (ctx) => {
         
         applications.forEach((app, index) => {
             const status = app.approved.includes(fullFio) ? 
-                '✅ Подтверждена администратором' : 
+                '✅ Подтверждена руководителем' : 
                 '⏳ Ожидает подтверждения';
             
             message += `${index + 1}. *${app.date} ${app.time}* - ${app.department}\n`;
