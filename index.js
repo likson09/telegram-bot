@@ -1870,14 +1870,15 @@ async function getPlacementData(fio, year, month) {
 // Функция для получения данных производительности
 async function getProductivityData(fio, year, month) {
     try {
+        console.log(`📊 Запрос данных производительности для: ${fio}, ${month}.${year}`);
+        
         const selectionData = await getSelectionData(fio, year, month);
         const placementData = await getPlacementData(fio, year, month);
 
-        // Проверяем что данные существуют
-        if (!selectionData || !placementData) {
-            console.log('❌ Данные отбора или размещения не найдены');
-            return null;
-        }
+        console.log('📊 Получены данные:', {
+            selectionData: !!selectionData,
+            placementData: !!placementData
+        });
 
         let totalRmSelection = 0;
         let totalOsSelection = 0;
@@ -1886,10 +1887,10 @@ async function getProductivityData(fio, year, month) {
         let daysWithData = 0;
 
         for (let day = 1; day <= 31; day++) {
-            const selRm = selectionData[`rm_day_${day}`] || 0;
-            const selOs = selectionData[`os_day_${day}`] || 0;
-            const plRm = placementData[`rm_day_${day}`] || 0;
-            const plOs = placementData[`os_day_${day}`] || 0;
+            const selRm = selectionData ? (selectionData[`rm_day_${day}`] || 0) : 0;
+            const selOs = selectionData ? (selectionData[`os_day_${day}`] || 0) : 0;
+            const plRm = placementData ? (placementData[`rm_day_${day}`] || 0) : 0;
+            const plOs = placementData ? (placementData[`os_day_${day}`] || 0) : 0;
             
             if (selRm > 0 || selOs > 0 || plRm > 0 || plOs > 0) {
                 daysWithData++;
@@ -1913,8 +1914,18 @@ async function getProductivityData(fio, year, month) {
         };
         
     } catch (error) {
-        console.error('❌ Ошибка при получении данных производительности:', error.message);
-        return null;
+        console.error('❌ Ошибка при получении данных производительности:', error);
+        return {
+            selectionData: {},
+            placementData: {},
+            totalRmSelection: 0,
+            totalOsSelection: 0,
+            totalRmPlacement: 0,
+            totalOsPlacement: 0,
+            daysWithData: 0,
+            avgSelectionPerDay: 0,
+            avgPlacementPerDay: 0
+        };
     }
 }
 
@@ -2634,13 +2645,12 @@ bot.action(/^month_/, async (ctx) => {
     }
 });
 
-// Обработчик для детализации
 bot.action(/^month_detail_/, async (ctx) => {
     try {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для детализации:', callbackData);
         
-        // Правильно извлекаем month и year
+        // Правильно извлекаем month и year - они на позициях 2 и 3
         const parts = callbackData.split('_');
         console.log('📊 Parts:', parts);
         
@@ -2668,7 +2678,7 @@ bot.action(/^month_detail_/, async (ctx) => {
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
         // Проверяем валидность месяца
-        if (month < 0 || month >= monthNames.length) {
+        if (isNaN(month) || month < 0 || month >= monthNames.length) {
             console.log(`❌ Неверный номер месяца: ${month}`);
             await ctx.answerCbQuery('Неизвестный месяц');
             return;
@@ -2679,38 +2689,46 @@ bot.action(/^month_detail_/, async (ctx) => {
         let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n\n`;
         message += `👤 *Сотрудник:* ${fullFio}\n`;
         message += `📅 *Период:* ${monthName} ${year}\n\n`;
-        message += `*Ежедневная статистика:*\n\n`;
-
-        let hasData = false;
         
-        for (let day = 1; day <= 31; day++) {
-            const hasSelection = selectionData && (selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0);
-            const hasPlacement = placementData && (placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0);
-            
-            if (hasSelection || hasPlacement) {
-                hasData = true;
-                
-                message += `📅 *${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.*\n`;
-                
-                if (hasSelection) {
-                    message += `📦 Отбор: `;
-                    if (selectionData[`os_day_${day}`] > 0) message += `ОС=${selectionData[`os_day_${day}`]} `;
-                    if (selectionData[`rm_day_${day}`] > 0) message += `РМ=${selectionData[`rm_day_${day}`]}`;
-                    message += `\n`;
-                }
-                
-                if (hasPlacement) {
-                    message += `📋 Размещение: `;
-                    if (placementData[`os_day_${day}`] > 0) message += `ОС=${placementData[`os_day_${day}`]} `;
-                    if (placementData[`rm_day_${day}`] > 0) message += `РМ=${placementData[`rm_day_${day}`]}`;
-                    message += `\n`;
-                }
-                message += `\n`;
-            }
-        }
-
-        if (!hasData) {
+        // Проверяем наличие данных
+        if (!selectionData && !placementData) {
             message += `📭 *Данные отсутствуют*\n\nЗа выбранный период активность не зафиксирована.`;
+        } else {
+            message += `*Ежедневная статистика:*\n\n`;
+
+            let hasData = false;
+            
+            for (let day = 1; day <= 31; day++) {
+                const selRm = selectionData ? (selectionData[`rm_day_${day}`] || 0) : 0;
+                const selOs = selectionData ? (selectionData[`os_day_${day}`] || 0) : 0;
+                const plRm = placementData ? (placementData[`rm_day_${day}`] || 0) : 0;
+                const plOs = placementData ? (placementData[`os_day_${day}`] || 0) : 0;
+                
+                if (selRm > 0 || selOs > 0 || plRm > 0 || plOs > 0) {
+                    hasData = true;
+                    
+                    message += `📅 *${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.*\n`;
+                    
+                    if (selRm > 0 || selOs > 0) {
+                        message += `📦 Отбор: `;
+                        if (selOs > 0) message += `ОС=${selOs} `;
+                        if (selRm > 0) message += `РМ=${selRm}`;
+                        message += `\n`;
+                    }
+                    
+                    if (plRm > 0 || plOs > 0) {
+                        message += `📋 Размещение: `;
+                        if (plOs > 0) message += `ОС=${plOs} `;
+                        if (plRm > 0) message += `РМ=${plRm}`;
+                        message += `\n`;
+                    }
+                    message += `\n`;
+                }
+            }
+
+            if (!hasData) {
+                message += `📭 *Данные отсутствуют*\n\nЗа выбранный период активность не зафиксирована.`;
+            }
         }
 
         const backKeyboard = [
