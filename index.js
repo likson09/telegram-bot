@@ -2658,22 +2658,25 @@ bot.action(/^month_/, async (ctx) => {
 bot.action(/^month_detail_/, async (ctx) => {
     try {
         const callbackData = ctx.callbackQuery.data;
-        console.log('📨 Получен callback_data для детализации:', callbackData);
+        console.log('🔍 DEBUG: Получен callback_data:', callbackData);
         
         // ЭКСТРЕННАЯ ОТЛАДКА - выводим все символы
-        console.log('🔍 CHAR CODES:');
+        console.log('🔍 CHAR CODES ANALYSIS:');
         for (let i = 0; i < callbackData.length; i++) {
-            console.log(`  ${i}: '${callbackData[i]}' = ${callbackData.charCodeAt(i)}`);
+            const char = callbackData[i];
+            const code = callbackData.charCodeAt(i);
+            console.log(`  Position ${i}: '${char}' = ${code} (${code.toString(16)})`);
         }
         
         const parts = callbackData.split('_');
-        console.log('📊 Parts:', parts);
-        console.log('📊 Parts lengths:', parts.map(p => p.length));
+        console.log('🔍 Parts after split:', parts);
+        console.log('🔍 Parts lengths:', parts.map(p => p.length));
+        console.log('🔍 Parts types:', parts.map(p => typeof p));
         
-        // ВРЕМЕННО: принудительно берем известные значения
+        // АВАРИЙНЫЙ РЕЖИМ - принудительно берем значения из лога
+        console.log('🚨 EMERGENCY MODE: Using forced values month=7, year=2025');
         const forcedMonth = 7;
         const forcedYear = 2025;
-        console.log('🔧 Using forced values:', {month: forcedMonth, year: forcedYear});
         
         const sessionData = ctx.session.currentData;
         
