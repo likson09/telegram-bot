@@ -960,9 +960,11 @@ bot.action('cancel_creation', async (ctx) => {
     await ctx.answerCbQuery();
 });
 
-// Обработчик для смене ФИО
 bot.action('menu_change_fio', async (ctx) => {
     try {
+        // Сбрасываем adminAction чтобы избежать конфликта
+        ctx.session.adminAction = null;
+        
         await ctx.editMessageText('📝 *Отправьте ваше ФИО заново:*\n(Фамилия Имя Отчество)', { 
             parse_mode: 'Markdown' 
         });
@@ -1291,6 +1293,12 @@ function validateFIO(fio) {
 bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
 
+    // Сбрасываем adminAction если пользователь просто вводит текст (не админское действие)
+    if (ctx.session.adminAction && !ctx.session.creatingShift) {
+        console.log('🔄 Сброс adminAction при обычном текстовом сообщении');
+        ctx.session.adminAction = null;
+    }
+    
     // Обработка создания смены через команду /podrabotka
     if (ctx.session.creatingShift) {
         try {
@@ -2289,7 +2297,11 @@ bot.action('work_my_applications', async (ctx) => {
 // Обработчик для выбора месяца
 bot.action(/^month_/, async (ctx) => {
     try {
-        const parts = ctx.callbackQuery.data.split('_');
+        const callbackData = ctx.callbackQuery.data;
+        console.log('📨 Получен callback_data для месяца:', callbackData);
+        
+        // Правильно извлекаем month и year
+        const parts = callbackData.split('_');
         if (parts.length < 3) {
             await ctx.answerCbQuery('Ошибка формата');
             return;
@@ -2297,6 +2309,8 @@ bot.action(/^month_/, async (ctx) => {
         
         const month = parseInt(parts[1]);
         const year = parseInt(parts[2]);
+        
+        console.log(`📅 Выбран месяц: ${month}, год: ${year}`);
         
         const fullFio = ctx.session.userFio;
         
@@ -2308,12 +2322,12 @@ bot.action(/^month_/, async (ctx) => {
         const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
         
-        const monthName = monthNames[month];
-        
-        if (!monthName) {
+        if (month < 0 || month >= monthNames.length) {
             await ctx.answerCbQuery('Неизвестный месяц');
             return;
         }
+        
+        const monthName = monthNames[month];
         
         // Получаем данные производительности
         const productivityData = await getProductivityData(fullFio, year, month + 1);
@@ -2322,7 +2336,7 @@ bot.action(/^month_/, async (ctx) => {
         ctx.session.currentData = {
             selectionData: productivityData.selectionData,
             placementData: productivityData.placementData,
-            month: month + 1,
+            month: month,
             year: year,
             fullFio: fullFio
         };
@@ -2364,20 +2378,22 @@ bot.action(/^month_/, async (ctx) => {
 });
 
 // Обработчик для детализации
-bot.action(/^month_detail_/, async (ctx) => {
+bbot.action(/^month_detail_/, async (ctx) => {
     try {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для детализации:', callbackData);
         
         // Извлекаем month и year
-        const parts = callbackData.replace('month_detail_', '').split('_');
-        if (parts.length < 2) {
+        const parts = callbackData.split('_');
+        if (parts.length < 3) {
             await ctx.answerCbQuery('Ошибка формата');
             return;
         }
         
-        const month = parseInt(parts[0]);
-        const year = parseInt(parts[1]);
+        const month = parseInt(parts[2]); // month теперь на позиции 2
+        const year = parseInt(parts[3]);  // year теперь на позиции 3
+        
+        console.log(`📊 Детализация для месяца: ${month}, года: ${year}`);
         
         const sessionData = ctx.session.currentData;
         
