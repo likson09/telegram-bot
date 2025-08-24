@@ -1647,7 +1647,10 @@ bot.action('work_shifts_list', async (ctx) => {
         const availableShifts = await getAvailableShifts();
         ctx.session.availableShifts = availableShifts;
         
-        console.log('Загружено смен:', availableShifts.length);
+        console.log('📋 Создание кнопок для смен:');
+        availableShifts.forEach((shift, index) => {
+            console.log(`Кнопка ${index}: shift_detail_${shift.id} - ${shift.date} ${shift.time}`);
+        });
         
         if (availableShifts.length === 0) {
             await ctx.editMessageText('📭 *На данный момент нет доступных смен для подработки.*', {
@@ -1679,14 +1682,21 @@ bot.action('work_shifts_list', async (ctx) => {
 
 bot.action(/^shift_detail_/, async (ctx) => {
     try {
-        const [action, shiftId] = ctx.callbackQuery.data.split('_');
+        // ПРАВИЛЬНО извлекаем shiftId из callback_data
+        const callbackData = ctx.callbackQuery.data;
+        console.log('📨 Получен callback_data:', callbackData);
+        
+        // Извлекаем ID смены (все что после 'shift_detail_')
+        const shiftId = callbackData.replace('shift_detail_', '');
+        console.log('🔍 Извлеченный shiftId:', shiftId);
+        
         const { availableShifts, userFio } = ctx.session;
 
         console.log('🔍 Поиск смены ID:', shiftId);
-        console.log('Доступные смены в сессии:', availableShifts.map(s => ({id: s.id, date: s.date, status: s.status})));
+        console.log('Доступные смены в сессии:', availableShifts ? availableShifts.map(s => ({id: s.id, date: s.date, status: s.status})) : 'Нет данных');
         
         // Ищем смену в сохраненном массиве
-        let shift = availableShifts.find(s => s.id.toString() === shiftId.toString());
+        let shift = availableShifts?.find(s => s.id.toString() === shiftId.toString());
         
         if (!shift) {
             console.log('❌ Смена не найдена в сессии! Ищем в таблице заново...');
@@ -1706,7 +1716,6 @@ bot.action(/^shift_detail_/, async (ctx) => {
                 
                 await ctx.answerCbQuery('❌ Смена не найдена');
                 
-                // Показываем сообщение с возможностью обновить список
                 await ctx.editMessageText('❌ *Смена не найдена*\n\nВозможные причины:\n• Смена была удалена\n• Изменился статус смены\n• Проблема с подключением к таблице\n\nПопробуйте обновить список смен:', {
                     parse_mode: 'Markdown',
                     reply_markup: {
@@ -1825,7 +1834,12 @@ bot.action(/^shift_detail_/, async (ctx) => {
 
 bot.action(/^shift_signup_/, async (ctx) => {
     try {
-        const [action, shiftId] = ctx.callbackQuery.data.split('_');
+        // ПРАВИЛЬНО извлекаем shiftId
+        const callbackData = ctx.callbackQuery.data;
+        const shiftId = callbackData.replace('shift_signup_', '');
+        
+        console.log('📝 Попытка записи на смену:', shiftId);
+        
         const { userFio, userId } = ctx.session;
 
         const success = await signUpForShift(ctx.from.id, userFio, shiftId);
