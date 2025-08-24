@@ -191,15 +191,30 @@ async function safeEditMessage(ctx, text, markup = null) {
     }
 }
 
-// Функция для создания главного меню
-function createMainMenu(shortFio, userId) {
+// Функция для создания красивого главного меню
+function createMainMenu(shortFio, userId, fio) {
     return [
         [
-            { text: 'Ошибки', callback_data: `e_${shortFio}_${userId}` },
-            { text: 'Табель', callback_data: `t_${shortFio}_${userId}` }
+            { 
+                text: '📊 Ошибки', 
+                callback_data: `e_${shortFio}_${userId}` 
+            },
+            { 
+                text: '📅 Табель', 
+                callback_data: `t_${shortFio}_${userId}` 
+            }
         ],
         [
-            { text: 'Производительность', callback_data: `p_${shortFio}_${userId}` }
+            { 
+                text: '🚀 Производительность', 
+                callback_data: `p_${shortFio}_${userId}` 
+            }
+        ],
+        [
+            { 
+                text: '🔄 Сменить ФИО', 
+                callback_data: `change_fio_${userId}` 
+            }
         ]
     ];
 }
@@ -207,17 +222,45 @@ function createMainMenu(shortFio, userId) {
 // Функция для создания кнопки "Назад в меню"
 function createBackButton(shortFio, userId) {
     return [
-        [{ text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }]
+        [{ 
+            text: '↩️ Назад в меню', 
+            callback_data: `back_${shortFio}_${userId}` 
+        }]
     ];
+}
+
+// Функция для создания красивого сообщения с разделителями
+function createSection(title, content) {
+    return `▫️ *${title}:*\n${content}\n`;
 }
 
 // Команда /start
 bot.start(async (ctx) => {
     console.log('Получена команда /start от пользователя:', ctx.from.id);
     try {
-        await ctx.reply('Привет! 👋 Отправьте ваше ФИО (Фамилия Имя Отчество) для получения статистики.');
+        const welcomeMessage = `👋 *Добро пожаловать в бот статистики!*\n\n` +
+                              `📈 Здесь вы можете получить информацию о:\n` +
+                              `• 📊 Количестве ошибок\n` +
+                              `• 📅 Данных табеля\n` +
+                              `• 🚀 Производительности труда\n\n` +
+                              `📝 *Отправьте ваше ФИО* (Фамилия Имя Отчество) для начала работы.`;
+        
+        await ctx.reply(welcomeMessage, { parse_mode: 'Markdown' });
     } catch (error) {
         console.error('Ошибка при ответе на /start:', error);
+    }
+});
+
+// Обработчик для смены ФИО
+bot.action(/^change_fio_/, async (ctx) => {
+    try {
+        await ctx.editMessageText('📝 *Отправьте ваше ФИО заново:*\n(Фамилия Имя Отчество)', { 
+            parse_mode: 'Markdown' 
+        });
+        await ctx.answerCbQuery();
+    } catch (error) {
+        console.error('Ошибка при смене ФИО:', error);
+        await ctx.answerCbQuery('⚠️ Ошибка при смене ФИО');
     }
 });
 
@@ -236,14 +279,27 @@ bot.on('text', async (ctx) => {
     
     try {
         if (!validateFIO(fio)) {
-            await ctx.reply('❌ Некорректный формат ФИО. Отправьте в формате: Фамилия Имя Отчество');
+            const errorMessage = `❌ *Некорректный формат ФИО*\n\n` +
+                               `📋 Правильный формат: *Фамилия Имя Отчество*\n` +
+                               `Пример: *Иванов Иван Иванович*\n\n` +
+                               `Пожалуйста, отправьте ФИО в правильном формате.`;
+            
+            await ctx.reply(errorMessage, { parse_mode: 'Markdown' });
             return;
         }
         
         // Проверяем наличие сотрудника в таблицах
         const employeeExists = await checkEmployeeExists(fio);
         if (!employeeExists) {
-            await ctx.reply('❌ По данному сотруднику информации не найдено, попробуйте другое ФИО');
+            const notFoundMessage = `🔍 *Информация не найдена*\n\n` +
+                                  `По сотруднику *${fio}* данных не обнаружено.\n\n` +
+                                  `Возможные причины:\n` +
+                                  `• ФИО введено с ошибкой\n` +
+                                  `• Сотрудник не внесен в систему\n` +
+                                  `• Данные еще не обновлены\n\n` +
+                                  `📝 Попробуйте другое ФИО или проверьте правильность написания.`;
+            
+            await ctx.reply(notFoundMessage, { parse_mode: 'Markdown' });
             return;
         }
         
@@ -252,13 +308,24 @@ bot.on('text', async (ctx) => {
         const shortFio = `${lastName.slice(0, 3)}${firstName.slice(0, 3)}${patronymic.slice(0, 3)}`;
         const userId = ctx.from.id;
         
-        await ctx.reply('📊 Выберите раздел:', {
-            reply_markup: { inline_keyboard: createMainMenu(shortFio, userId) }
+        const menuMessage = `👤 *${fio}*\n\n` +
+                           `📊 *Выберите раздел для просмотра статистики:*\n\n` +
+                           `▫️ *📊 Ошибки* - количество рабочих ошибок\n` +
+                           `▫️ *📅 Табель* - информация о сменах\n` +
+                           `▫️ *🚀 Производительность* - показатели эффективности`;
+        
+        await ctx.reply(menuMessage, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: createMainMenu(shortFio, userId, fio) }
         });
         
     } catch (error) {
         console.error('Ошибка при обработке ФИО:', error);
-        await ctx.reply('⚠️ Произошла ошибка при проверке данных. Попробуйте позже.');
+        const errorMessage = `⚠️ *Произошла ошибка*\n\n` +
+                           `При обработке вашего запроса возникла проблема.\n\n` +
+                           `Пожалуйста, попробуйте позже или обратитесь к администратору.`;
+        
+        await ctx.reply(errorMessage, { parse_mode: 'Markdown' });
     }
 });
 
@@ -454,8 +521,12 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
         console.log('Обработчик вызван:', { action, shortFio, userId });
 
         if (action === 'back') {
-            await ctx.editMessageText('📊 Выберите раздел:', {
-                reply_markup: { inline_keyboard: createMainMenu(shortFio, userId) }
+            const menuMessage = `👤 *${fullFio}*\n\n` +
+                               `📊 *Выберите раздел для просмотра статистики:*`;
+            
+            await ctx.editMessageText(menuMessage, {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: createMainMenu(shortFio, userId, fullFio) }
             });
             await ctx.answerCbQuery();
             return;
@@ -471,7 +542,14 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
             case 'e':
                 try {
                     const errorCount = await getErrorCount(fullFio);
-                    await ctx.editMessageText(`📊 Количество ошибок для ${fullFio}: ${errorCount}`, {
+                    const errorMessage = `📊 *СТАТИСТИКА ОШИБОК*\n\n` +
+                                       `👤 *Сотрудник:* ${fullFio}\n` +
+                                       `📅 *Период:* все время\n\n` +
+                                       `❌ *Общее количество ошибок:* ${errorCount}\n\n` +
+                                       `💡 *Примечание:* учитываются все зафиксированные ошибки в работе`;
+                    
+                    await ctx.editMessageText(errorMessage, {
+                        parse_mode: 'Markdown',
                         reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
                     });
                 } catch (error) {
@@ -488,15 +566,18 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                     const currentMonth = new Date().getMonth();
                     
                     const monthKeyboard = [];
+                    const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
+                                      'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+                    
                     for (let i = 0; i < 6; i++) {
                         const monthDate = new Date(currentYear, currentMonth - i, 1);
-                        const monthName = monthDate.toLocaleString('ru', { month: 'long' });
+                        const monthName = monthNames[monthDate.getMonth()];
                         const year = monthDate.getFullYear();
                         const monthIndex = monthDate.getMonth();
                         
                         monthKeyboard.push([
                             { 
-                                text: `${monthName} ${year}`, 
+                                text: `📅 ${monthName} ${year}`, 
                                 callback_data: `month_${monthIndex}_${year}_${shortFio}_${userId}`
                             }
                         ]);
@@ -507,7 +588,13 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                         callback_data: `back_${shortFio}_${userId}` 
                     }]);
                     
-                    await ctx.editMessageText('📅 Выберите месяц:', {
+                    const productivityMessage = `🚀 *АНАЛИЗ ПРОИЗВОДИТЕЛЬНОСТИ*\n\n` +
+                                              `👤 *Сотрудник:* ${fullFio}\n\n` +
+                                              `📊 *Выберите месяц для анализа:*\n\n` +
+                                              `Доступны данные за последние 6 месяцев`;
+                    
+                    await ctx.editMessageText(productivityMessage, {
+                        parse_mode: 'Markdown',
                         reply_markup: { inline_keyboard: monthKeyboard }
                     });
                 } catch (error) {
@@ -526,15 +613,18 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                         ? (totalWorked / shiftData.plannedShifts) * 100 
                         : 0;
 
-                    const message = `📊 ТАБЕЛЬ ДЛЯ ${fullFio}:\n\n` +
-                        `📅 График: ${shiftData.plannedShifts} смен\n` +
-                        `➕ Доп. смены: ${shiftData.extraShifts}\n` +
-                        `❌ Прогулы: ${shiftData.absences}\n` +
-                        `💪 Усиления: ${shiftData.reinforcementShifts}\n` +
-                        `✅ Всего отработано: ${totalWorked} смен\n` +
-                        `📈 Посещаемость: ${attendanceRate.toFixed(2)}%`;
+                    const message = `📅 *ТАБЕЛЬНАЯ СТАТИСТИКА*\n\n` +
+                                  `👤 *Сотрудник:* ${fullFio}\n\n` +
+                                  createSection('По графику', `${shiftData.plannedShifts} смен`) +
+                                  createSection('Дополнительные смены', `${shiftData.extraShifts}`) +
+                                  createSection('Прогулы', `${shiftData.absences}`) +
+                                  createSection('Усиления', `${shiftData.reinforcementShifts}`) +
+                                  createSection('Всего отработано', `${totalWorked} смен`) +
+                                  createSection('Посещаемость', `${attendanceRate.toFixed(1)}%`) +
+                                  `\n📊 *Общая эффективность:* ${attendanceRate >= 95 ? '✅ Высокая' : attendanceRate >= 85 ? '⚠️ Средняя' : '❌ Низкая'}`;
 
                     await ctx.editMessageText(message, {
+                        parse_mode: 'Markdown',
                         reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
                     });
                 } catch (error) {
@@ -604,18 +694,24 @@ bot.action(/^month_/, async (ctx) => {
             fullFio: fullFio
         };
 
-        const message = `📊 ПРОИЗВОДИТЕЛЬНОСТЬ ЗА ${monthName.toUpperCase()} ${year}\n` +
-                       `👤 Сотрудник: ${fullFio}\n\n` +
-                       `📦 ОТБОР ТОВАРА:\n` +
+        const totalSelection = productivityData.totalRmSelection + productivityData.totalOsSelection;
+        const totalPlacement = productivityData.totalRmPlacement + productivityData.totalOsPlacement;
+
+        const message = `🚀 *ПРОИЗВОДИТЕЛЬНОСТЬ ЗА ${monthName.toUpperCase()} ${year}*\n\n` +
+                       `👤 *Сотрудник:* ${fullFio}\n\n` +
+                       `📦 *ОТБОР ТОВАРА*\n` +
                        `├ ОС: ${productivityData.totalOsSelection} ед.\n` +
-                       `└ РМ: ${productivityData.totalRmSelection} ед.\n\n` +
-                       `📋 РАМЕЩЕНИЕ ТОВАРА:\n` +
+                       `├ РМ: ${productivityData.totalRmSelection} ед.\n` +
+                       `└ *Всего:* ${totalSelection} ед.\n\n` +
+                       `📋 *РАЗМЕЩЕНИЕ ТОВАРА*\n` +
                        `├ ОС: ${productivityData.totalOsPlacement} ед.\n` +
-                       `└ РМ: ${productivityData.totalRmPlacement} ед.\n\n` +
-                       `📈 ОБЩАЯ СТАТИСТИКА:\n` +
+                       `├ РМ: ${productivityData.totalRmPlacement} ед.\n` +
+                       `└ *Всего:* ${totalPlacement} ед.\n\n` +
+                       `📈 *ОБЩАЯ СТАТИСТИКА*\n` +
                        `├ Дней с данными: ${productivityData.daysWithData}\n` +
                        `├ Средний отбор/день: ${productivityData.avgSelectionPerDay} ед.\n` +
-                       `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.`;
+                       `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n` +
+                       `📊 *Эффективность:* ${productivityData.avgSelectionPerDay > 1000 ? '✅ Высокая' : productivityData.avgSelectionPerDay > 500 ? '⚠️ Средняя' : '❌ Низкая'}`;
 
         const detailKeyboard = [
             [{ text: '📋 Детализировать по дням', callback_data: `detail_${month}_${year}_${shortFio}_${userId}` }],
@@ -664,11 +760,14 @@ bot.action(/^detail_/, async (ctx) => {
         const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
-        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n`;
-        message += `👤 ${fullFio}\n`;
-        message += `📅 ${monthNames[month]} ${year}\n\n`;
+        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n\n`;
+        message += `👤 *Сотрудник:* ${fullFio}\n`;
+        message += `📅 *Период:* ${monthNames[month]} ${year}\n\n`;
+        message += `*Ежедневная статистика:*\n\n`;
 
         let hasData = false;
+        let dayCounter = 0;
+        const maxDaysPerMessage = 10; // Ограничиваем количество дней в одном сообщении
         
         for (let day = 1; day <= 31; day++) {
             const hasSelection = selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0;
@@ -676,7 +775,14 @@ bot.action(/^detail_/, async (ctx) => {
             
             if (hasSelection || hasPlacement) {
                 hasData = true;
-                message += `*${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.${year}*\n`;
+                dayCounter++;
+                
+                if (dayCounter > maxDaysPerMessage) {
+                    message += `\n📝 *И еще ${31 - maxDaysPerMessage} дней с данными...*\n`;
+                    break;
+                }
+                
+                message += `📅 *${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.*\n`;
                 
                 if (hasSelection) {
                     message += `📦 Отбор: `;
@@ -696,7 +802,7 @@ bot.action(/^detail_/, async (ctx) => {
         }
 
         if (!hasData) {
-            message += `Нет данных за выбранный период\n`;
+            message += `📭 *Данные отсутствуют*\n\nЗа выбранный период активность не зафиксирована.`;
         }
 
         const backKeyboard = [
