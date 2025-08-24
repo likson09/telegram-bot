@@ -2681,6 +2681,13 @@ bot.action(/^month_detail_/, async (ctx) => {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для детализации:', callbackData);
         
+        // Детальная отладка callback_data
+        console.log('🔍 Debug callback data:', {
+            raw: callbackData,
+            length: callbackData.length,
+            charCodes: Array.from(callbackData).map(c => c.charCodeAt(0))
+        });
+        
         // Формат: month_detail_7_2025 - значит parts[2] и parts[3]
         const parts = callbackData.split('_');
         console.log('📊 Parts:', parts);
@@ -2691,11 +2698,29 @@ bot.action(/^month_detail_/, async (ctx) => {
             return;
         }
         
-        // ИСПРАВЛЕНИЕ: parts[2] и parts[3] для формата month_detail_7_2025
-        const month = parseInt(parts[2]); // 7
-        const year = parseInt(parts[3]);  // 2025
+        // Детальная отладка частей
+        console.log('🔍 Raw parts:', {
+            part2: parts[2], 
+            part3: parts[3],
+            part2Type: typeof parts[2],
+            part3Type: typeof parts[3],
+            part2Length: parts[2].length,
+            part3Length: parts[3].length
+        });
         
-        console.log(`📊 Детализация для месяца: ${month}, года: ${year}`);
+        // Безопасный парсинг с очисткой от нечисловых символов
+        const month = parseInt(parts[2].replace(/[^\d]/g, '').trim());
+        const year = parseInt(parts[3].replace(/[^\d]/g, '').trim());
+        
+        // Детальная отладка после парсинга
+        console.log('🔍 Parsed values:', {
+            month, 
+            year,
+            monthType: typeof month,
+            yearType: typeof year,
+            isNaNMonth: isNaN(month),
+            isNaNYear: isNaN(year)
+        });
         
         // Проверка валидности данных
         if (isNaN(month) || isNaN(year)) {
