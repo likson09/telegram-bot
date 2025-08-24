@@ -1139,37 +1139,40 @@ bot.action(/^(e|p|t|work|back)_/, async (ctx) => {
                 break;
 
             case 'work':
-                try {
-                    const isUserAdmin = await isAdmin(userId);
-                    const workMenu = [
-                        [
-                            { text: '📋 Доступные смены', callback_data: `shifts_list_${shortFio}_${userId}` },
-                            { text: '📝 Мои заявки', callback_data: `my_applications_${shortFio}_${userId}` }
-                        ]
-                    ];
+    try {
+        // БЫЛО: const isUserAdmin = isAdmin(userId);
+        // СТАЛО: 
+        const isUserAdmin = await isAdmin(userId);
+        
+        const workMenu = [
+            [
+                { text: '📋 Доступные смены', callback_data: `shifts_list_${shortFio}_${userId}` },
+                { text: '📝 Мои заявки', callback_data: `my_applications_${shortFio}_${userId}` }
+            ]
+        ];
 
-                    if (isUserAdmin) {
-                        workMenu.push([
-                            { text: '👨‍💼 Все заявки', callback_data: `admin_applications_${shortFio}_${userId}` },
-                            { text: '➕ Создать смену', callback_data: `create_shift_${shortFio}_${userId}` }
-                        ]);
-                    }
+        if (isUserAdmin) {
+            workMenu.push([
+                { text: '👨‍💼 Все заявки', callback_data: `admin_applications_${shortFio}_${userId}` },
+                { text: '➕ Создать смену', callback_data: `create_shift_${shortFio}_${userId}` }
+            ]);
+        }
 
-                    workMenu.push([
-                        { text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }
-                    ]);
+        workMenu.push([
+            { text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }
+        ]);
 
-                    await ctx.editMessageText(`💼 *СИСТЕМА ПОДРАБОТОК*\n\n👤 Сотрудник: ${fullFio}${isUserAdmin ? '\n⚡ Режим администратора' : ''}`, {
-                        parse_mode: 'Markdown',
-                        reply_markup: { inline_keyboard: workMenu }
-                    });
-                } catch (error) {
-                    console.error('Ошибка при открытии меню подработок:', error);
-                    await ctx.editMessageText('❌ Не удалось открыть меню подработок.', {
-                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
-                    });
-                }
-                break;
+        await ctx.editMessageText(`💼 *СИСТЕМА ПОДРАБОТОК*\n\n👤 Сотрудник: ${fullFio}${isUserAdmin ? '\n⚡ Режим администратора' : ''}`, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: workMenu }
+        });
+    } catch (error) {
+        console.error('Ошибка при открытии меню подработок:', error);
+        await ctx.editMessageText('❌ Не удалось открыть меню подработок.', {
+            reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+        });
+    }
+    break;
         }
         
         await ctx.answerCbQuery();
