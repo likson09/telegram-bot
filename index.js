@@ -1778,8 +1778,9 @@ async function getSelectionData(fio, year, month) {
     try {
         const rows = await getSheetData('Отбор!A:D');
         
-        if (!rows) {
-            throw new Error('Данные отбора не найдены');
+        if (!rows || rows.length < 2) {
+            console.log('❌ Данные отбора не найдены или пустые');
+            return {};
         }
         
         const data = {};
@@ -1792,26 +1793,35 @@ async function getSelectionData(fio, year, month) {
         const filteredData = rows.filter(row => {
             if (row.length < 4) return false;
             
-            const rowDate = new Date(row[1]);
-            return row[0] === fio && 
-                   rowDate.getFullYear() === year && 
-                   rowDate.getMonth() + 1 === month;
+            try {
+                const rowDate = new Date(row[1]);
+                return row[0] === fio && 
+                       rowDate.getFullYear() === year && 
+                       rowDate.getMonth() + 1 === month;
+            } catch (error) {
+                console.log('❌ Ошибка парсинга даты:', error);
+                return false;
+            }
         });
         
         filteredData.forEach(row => {
-            const day = new Date(row[1]).getDate();
-            const os = parseFloat(row[2]) || 0;
-            const rm = parseFloat(row[3]) || 0;
-            
-            data[`rm_day_${day}`] = rm;
-            data[`os_day_${day}`] = os;
+            try {
+                const day = new Date(row[1]).getDate();
+                const os = parseFloat(row[2]) || 0;
+                const rm = parseFloat(row[3]) || 0;
+                
+                data[`rm_day_${day}`] = rm;
+                data[`os_day_${day}`] = os;
+            } catch (error) {
+                console.log('❌ Ошибка обработки строки отбора:', error);
+            }
         });
         
         return data;
         
     } catch (error) {
-        console.error('Ошибка при получении данных отбора:', error.message);
-        throw new Error('Не удалось получить данные отбора');
+        console.error('❌ Ошибка при получении данных отбора:', error.message);
+        return {};
     }
 }
 
@@ -1863,6 +1873,12 @@ async function getProductivityData(fio, year, month) {
         const selectionData = await getSelectionData(fio, year, month);
         const placementData = await getPlacementData(fio, year, month);
 
+        // Проверяем что данные существуют
+        if (!selectionData || !placementData) {
+            console.log('❌ Данные отбора или размещения не найдены');
+            return null;
+        }
+
         let totalRmSelection = 0;
         let totalOsSelection = 0;
         let totalRmPlacement = 0;
@@ -1870,13 +1886,17 @@ async function getProductivityData(fio, year, month) {
         let daysWithData = 0;
 
         for (let day = 1; day <= 31; day++) {
-            if (selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0 ||
-                placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0) {
+            const selRm = selectionData[`rm_day_${day}`] || 0;
+            const selOs = selectionData[`os_day_${day}`] || 0;
+            const plRm = placementData[`rm_day_${day}`] || 0;
+            const plOs = placementData[`os_day_${day}`] || 0;
+            
+            if (selRm > 0 || selOs > 0 || plRm > 0 || plOs > 0) {
                 daysWithData++;
-                totalRmSelection += selectionData[`rm_day_${day}`];
-                totalOsSelection += selectionData[`os_day_${day}`];
-                totalRmPlacement += placementData[`rm_day_${day}`];
-                totalOsPlacement += placementData[`os_day_${day}`];
+                totalRmSelection += selRm;
+                totalOsSelection += selOs;
+                totalRmPlacement += plRm;
+                totalOsPlacement += plOs;
             }
         }
 
@@ -1893,8 +1913,8 @@ async function getProductivityData(fio, year, month) {
         };
         
     } catch (error) {
-        console.error('Ошибка при получении данных производительности:', error.message);
-        throw new Error('Не удалось получить данные производительности');
+        console.error('❌ Ошибка при получении данных производительности:', error.message);
+        return null;
     }
 }
 
@@ -2531,6 +2551,8 @@ bot.action(/^month_/, async (ctx) => {
         
         // Правильно извлекаем month и year
         const parts = callbackData.split('_');
+        console.log('📊 Parts:', parts);
+        
         if (parts.length < 3) {
             await ctx.answerCbQuery('Ошибка формата');
             return;
@@ -2552,6 +2574,7 @@ bot.action(/^month_/, async (ctx) => {
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
         
         if (month < 0 || month >= monthNames.length) {
+            console.log(`❌ Неверный номер месяца: ${month}`);
             await ctx.answerCbQuery('Неизвестный месяц');
             return;
         }
@@ -2561,6 +2584,11 @@ bot.action(/^month_/, async (ctx) => {
         // Получаем данные производительности
         const productivityData = await getProductivityData(fullFio, year, month + 1);
         
+        if (!productivityData) {
+            await ctx.answerCbQuery('❌ Ошибка загрузки данных');
+            return;
+        }
+
         // Сохраняем данные в сессию для детализации
         ctx.session.currentData = {
             selectionData: productivityData.selectionData,
@@ -2589,9 +2617,9 @@ bot.action(/^month_/, async (ctx) => {
                        `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n`;
         
         const detailKeyboard = [
-            [{ text: '📋 Детализировать по дням', callback_data: `month_detail_${month}_${year}` }],
-            [{ text: '↩️ Выбрать другой месяц', callback_data: 'menu_show_productivity' }],
-            [{ text: '↩️ Назад в меню', callback_data: 'menu_back_main' }]
+            [{ text: '📋 Детализировать', callback_data: `month_detail_${month}_${year}` }],
+            [{ text: '↩️ Выбрать месяц', callback_data: 'menu_show_productivity' }],
+            [{ text: '↩️ В меню', callback_data: 'menu_back_main' }]
         ];
 
         await safeEditMessage(ctx, message, detailKeyboard);
@@ -2612,21 +2640,25 @@ bot.action(/^month_detail_/, async (ctx) => {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для детализации:', callbackData);
         
-        // Извлекаем month и year
+        // Правильно извлекаем month и year
         const parts = callbackData.split('_');
-        if (parts.length < 3) {
+        console.log('📊 Parts:', parts);
+        
+        if (parts.length < 4) {
+            console.log('❌ Неверный формат callback_data');
             await ctx.answerCbQuery('Ошибка формата');
             return;
         }
         
-        const month = parseInt(parts[2]); // month теперь на позиции 2
-        const year = parseInt(parts[3]);  // year теперь на позиции 3
+        const month = parseInt(parts[2]); // month на позиции 2
+        const year = parseInt(parts[3]);  // year на позиции 3
         
         console.log(`📊 Детализация для месяца: ${month}, года: ${year}`);
         
         const sessionData = ctx.session.currentData;
         
         if (!sessionData) {
+            console.log('❌ Данные сессии не найдены');
             await ctx.answerCbQuery('Данные не найдены');
             return;
         }
@@ -2635,16 +2667,25 @@ bot.action(/^month_detail_/, async (ctx) => {
         const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
+        // Проверяем валидность месяца
+        if (month < 0 || month >= monthNames.length) {
+            console.log(`❌ Неверный номер месяца: ${month}`);
+            await ctx.answerCbQuery('Неизвестный месяц');
+            return;
+        }
+
+        const monthName = monthNames[month];
+        
         let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n\n`;
         message += `👤 *Сотрудник:* ${fullFio}\n`;
-        message += `📅 *Период:* ${monthNames[month]} ${year}\n\n`;
+        message += `📅 *Период:* ${monthName} ${year}\n\n`;
         message += `*Ежедневная статистика:*\n\n`;
 
         let hasData = false;
         
         for (let day = 1; day <= 31; day++) {
-            const hasSelection = selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0;
-            const hasPlacement = placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0;
+            const hasSelection = selectionData && (selectionData[`rm_day_${day}`] > 0 || selectionData[`os_day_${day}`] > 0);
+            const hasPlacement = placementData && (placementData[`rm_day_${day}`] > 0 || placementData[`os_day_${day}`] > 0);
             
             if (hasSelection || hasPlacement) {
                 hasData = true;
@@ -2673,8 +2714,8 @@ bot.action(/^month_detail_/, async (ctx) => {
         }
 
         const backKeyboard = [
-            [{ text: '↩️ Назад к общей статистике', callback_data: `month_${month}_${year}` }],
-            [{ text: '↩️ Назад в меню', callback_data: 'menu_back_main' }]
+            [{ text: '↩️ Назад к статистике', callback_data: `month_${month}_${year}` }],
+            [{ text: '↩️ В меню', callback_data: 'menu_back_main' }]
         ];
 
         await safeEditMessage(ctx, message, backKeyboard);
