@@ -1298,7 +1298,7 @@ bot.on('text', async (ctx) => {
         console.log('🔄 Сброс adminAction при обычном текстовом сообщении');
         ctx.session.adminAction = null;
     }
-    
+
     // Обработка создания смены через команду /podrabotka
     if (ctx.session.creatingShift) {
         try {
@@ -2378,7 +2378,7 @@ bot.action(/^month_/, async (ctx) => {
 });
 
 // Обработчик для детализации
-bbot.action(/^month_detail_/, async (ctx) => {
+bot.action(/^month_detail_/, async (ctx) => {
     try {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для детализации:', callbackData);
