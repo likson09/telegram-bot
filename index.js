@@ -241,8 +241,10 @@ async function getAvailableShifts() {
 async function signUpForShift(userId, userName, shiftId) {
     try {
         const sheets = await connectToGoogleSheets();
+        
+        // Получаем актуальные данные
         const shifts = await getAvailableShifts();
-        const shift = shifts.find(s => s.id === shiftId);
+        const shift = shifts.find(s => s.id.toString() === shiftId.toString());
         
         if (!shift) {
             throw new Error('Смена не найдена');
@@ -256,7 +258,28 @@ async function signUpForShift(userId, userName, shiftId) {
             throw new Error('На эту смену уже набрано достаточно людей');
         }
         
-        const range = `Подработки!A${parseInt(shiftId) + 1}:G${parseInt(shiftId) + 1}`;
+        // Находим номер строки в таблице
+        const result = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Подработки!A:G'
+        });
+        
+        const rows = result.data.values || [];
+        let rowIndex = -1;
+        
+        for (let i = 1; i < rows.length; i++) {
+            if (rows[i][0] && rows[i][0].toString() === shiftId.toString()) {
+                rowIndex = i;
+                break;
+            }
+        }
+        
+        if (rowIndex === -1) {
+            throw new Error('Смена не найдена в таблице');
+        }
+        
+        // Обновляем запись
+        const range = `Подработки!F${rowIndex + 1}`;
         const newSignedUp = [...shift.signedUp, userName].join(',');
         
         await sheets.spreadsheets.values.update({
@@ -264,15 +287,7 @@ async function signUpForShift(userId, userName, shiftId) {
             range: range,
             valueInputOption: 'RAW',
             resource: {
-                values: [[
-                    shift.id,
-                    shift.date,
-                    shift.time,
-                    shift.department,
-                    shift.requiredPeople,
-                    newSignedUp,
-                    shift.status
-                ]]
+                values: [[newSignedUp]]
             }
         });
         
@@ -1240,11 +1255,16 @@ bot.action(/^shifts_list_/, async (ctx) => {
         const shiftsKeyboard = availableShifts.map(shift => [
             { 
                 text: `📅 ${shift.date} ${shift.time} (${shift.department})`, 
-                callback_data: `shift_detail_${shift.id}_${shortFio}_${userId}`
+                callback_data: `shift_${shift.id}` // Упрощаем callback_data
             }
         ]);
 
         shiftsKeyboard.push([{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]);
+
+        // Сохраняем данные в сессию
+        ctx.session.availableShifts = availableShifts;
+        ctx.session.currentShortFio = shortFio;
+        ctx.session.currentUserId = userId;
 
         await ctx.editMessageText('📋 *ДОСТУПНЫЕ СМЕНЫ ДЛЯ ПОДРАБОТКИ:*', {
             parse_mode: 'Markdown',
@@ -1257,17 +1277,18 @@ bot.action(/^shifts_list_/, async (ctx) => {
     }
 });
 
-bot.action(/^shift_detail_/, async (ctx) => {
+bot.action(/^shift_/, async (ctx) => {
     try {
-        const [action, shiftId, shortFio, userId] = ctx.callbackQuery.data.split('_');
-        const fullFio = ctx.session?.fullFio;
+        const [action, shiftId] = ctx.callbackQuery.data.split('_');
+        const { availableShifts, currentShortFio, currentUserId, fullFio } = ctx.session;
 
-        console.log('Поиск смены с ID:', shiftId);
+        console.log('Поиск смены с ID:', shiftId, 'в массиве:', availableShifts);
         
-        const shift = await getShiftById(shiftId);
+        // Ищем смену в сохраненном массиве
+        const shift = availableShifts.find(s => s.id.toString() === shiftId.toString());
         
         if (!shift) {
-            console.log('Смена не найдена. Доступные смены:', await getAvailableShifts());
+            console.log('Смена не найдена в сессии');
             await ctx.answerCbQuery('❌ Смена не найдена');
             return;
         }
@@ -1285,11 +1306,11 @@ bot.action(/^shift_detail_/, async (ctx) => {
             [
                 { 
                     text: '📝 Записаться на смену', 
-                    callback_data: `signup_shift_${shiftId}_${shortFio}_${userId}`
+                    callback_data: `signup_${shiftId}_${currentShortFio}_${currentUserId}`
                 }
             ],
             [
-                { text: '↩️ К списку смен', callback_data: `shifts_list_${shortFio}_${userId}` }
+                { text: '↩️ К списку смен', callback_data: `shifts_list_${currentShortFio}_${currentUserId}` }
             ]
         ];
 
@@ -1304,10 +1325,18 @@ bot.action(/^shift_detail_/, async (ctx) => {
     }
 });
 
-bot.action(/^signup_shift_/, async (ctx) => {
+bot.action(/^signup_/, async (ctx) => {
     try {
         const [action, shiftId, shortFio, userId] = ctx.callbackQuery.data.split('_');
         const fullFio = ctx.session?.fullFio;
+
+        // Используем смену из сессии
+        const shift = ctx.session.availableShifts.find(s => s.id.toString() === shiftId.toString());
+        
+        if (!shift) {
+            await ctx.answerCbQuery('❌ Смена не найдена');
+            return;
+        }
 
         const success = await signUpForShift(userId, fullFio, shiftId);
         
