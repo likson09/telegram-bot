@@ -504,9 +504,7 @@ async function getShiftData(fio) {
                         plannedShifts: parseInt(row[0] || 0),
                         extraShifts: parseInt(row[1] || 0),
                         absences: parseInt(row[2] || 0),
-                        reinforcementShifts: parseInt(row[3] || 0),
-                        sickLeaves: parseInt(row[4] || 0),
-                        vacations: parseInt(row[5] || 0)
+                        reinforcementShifts: parseInt(row[3] || 0)
                     };
                 }
             }
@@ -618,44 +616,17 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                 try {
                     const shiftData = await getShiftData(fullFio);
                     const totalWorked = shiftData.plannedShifts + shiftData.extraShifts + shiftData.reinforcementShifts;
-                    const totalAbsences = shiftData.absences + shiftData.sickLeaves + shiftData.vacations;
-                    const totalScheduled = shiftData.plannedShifts;
-                    const attendanceRate = totalScheduled > 0 
-                        ? (totalWorked / totalScheduled) * 100 
+                    const attendanceRate = shiftData.plannedShifts > 0 
+                        ? (totalWorked / shiftData.plannedShifts) * 100 
                         : 0;
 
-                    // Создаем красивый формат табельной статистики
-                    const message = `📊 *ТАБЕЛЬНАЯ СТАТИСТИКА*\n\n` +
-                                  `👤 *Сотрудник:* ${fullFio}\n` +
-                                  `📅 *Период:* текущий месяц\n\n` +
-                                  
-                                  `📈 *ОСНОВНЫЕ ПОКАЗАТЕЛИ*\n` +
-                                  `├ ${createProgressBar(attendanceRate)}\n` +
-                                  `├ Отработано: ${totalWorked} из ${totalScheduled} смен\n` +
-                                  `└ Эффективность: ${attendanceRate >= 95 ? '✅ Высокая' : attendanceRate >= 85 ? '⚠️ Средняя' : '❌ Низкая'}\n\n` +
-                                  
-                                  `📋 *ДЕТАЛИЗАЦИЯ СМЕН*\n` +
-                                  `┌───────────────────────────────┐\n` +
-                                  `│ 📅 По графику:    ${shiftData.plannedShifts.toString().padStart(3)} │\n` +
-                                  `│ ➕ Доп. смены:    ${shiftData.extraShifts.toString().padStart(3)} │\n` +
-                                  `│ 💪 Усиления:      ${shiftData.reinforcementShifts.toString().padStart(3)} │\n` +
-                                  `├───────────────────────────────┤\n` +
-                                  `│ ✅ Всего отработано: ${totalWorked.toString().padStart(3)} │\n` +
-                                  `└───────────────────────────────┘\n\n` +
-                                  
-                                  `📉 *ОТСУТСТВИЯ*\n` +
-                                  `┌───────────────────────────────┐\n` +
-                                  `│ ❌ Прогулы:       ${shiftData.absences.toString().padStart(3)} │\n` +
-                                  `│ 🏥 Больничные:    ${shiftData.sickLeaves.toString().padStart(3)} │\n` +
-                                  `│ 🏖️ Отпуска:        ${shiftData.vacations.toString().padStart(3)} │\n` +
-                                  `├───────────────────────────────┤\n` +
-                                  `│ ❗ Всего отсутствий: ${totalAbsences.toString().padStart(3)} │\n` +
-                                  `└───────────────────────────────┘\n\n` +
-                                  
-                                  `📊 *СТАТИСТИКА*\n` +
-                                  `• Заполненность графика: ${((totalWorked / (totalWorked + totalAbsences)) * 100 || 0).toFixed(1)}%\n` +
-                                  `• Коэффициент присутствия: ${(attendanceRate).toFixed(1)}%\n` +
-                                  `• Дополнительная нагрузка: ${shiftData.extraShifts > 0 ? '+' + shiftData.extraShifts : 'нет'}`;
+                    const message = `📊 *ТАБЕЛЬ ДЛЯ ${fullFio}:*\n\n` +
+                                  `📅 График: ${shiftData.plannedShifts} смен\n` +
+                                  `➕ Доп. смены: ${shiftData.extraShifts}\n` +
+                                  `❌ Прогулы: ${shiftData.absences}\n` +
+                                  `💪 Усиления: ${shiftData.reinforcementShifts}\n` +
+                                  `✅ Всего отработано: ${totalWorked} смен\n` +
+                                  `📈 Посещаемость: ${attendanceRate.toFixed(2)}%`;
 
                     await ctx.editMessageText(message, {
                         parse_mode: 'Markdown',
