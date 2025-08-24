@@ -211,52 +211,226 @@ async function checkEmployeeExists(fio) {
 
 async function getAvailableShifts() {
     try {
+        console.log('🔄 Загрузка смен из таблицы "Подработки"...');
+        
         const result = await googleSheetsClient.spreadsheets.values.get({
             spreadsheetId: SPREADSHEET_ID,
             range: 'Подработки!A:I'
         });
         
         const rows = result.data.values || [];
-        if (rows.length < 2) return [];
+        console.log(`📊 Найдено строк в таблице: ${rows.length}`);
+        
+        if (rows.length < 2) {
+            console.log('⚠️ В таблице нет данных или только заголовки');
+            return [];
+        }
+        
+        // Логируем заголовки для проверки структуры
+        console.log('📋 Заголовки таблицы:', rows[0]);
         
         const shifts = [];
+        let activeShiftsCount = 0;
+        let inactiveShiftsCount = 0;
+        let errorShiftsCount = 0;
         
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
-            if (!row || row.length === 0) continue;
             
-            // Создаем объект смены с значениями по умолчанию
-            const shift = {
-                id: row[0]?.toString() || i.toString(),
-                date: row[1] || 'Не указана',
-                time: row[2] || 'Не указано',
-                department: row[3] || 'Не указан',
-                requiredPeople: parseInt(row[4] || 0),
-                signedUp: [],
-                status: row[6] || 'active',
-                pendingApproval: [],
-                approved: []
-            };
+            // Пропускаем полностью пустые строки
+            if (!row || row.length === 0) {
+                console.log(`⚪ Пустая строка ${i + 1}`);
+                continue;
+            }
             
-            // Обрабатываем списки
-            if (row[5]) shift.signedUp = row[5].split(',').filter(Boolean);
-            if (row[7]) shift.pendingApproval = row[7].split(',').filter(Boolean);
-            if (row[8]) shift.approved = row[8].split(',').filter(Boolean);
+            // Пропускаем строки где нет хотя бы даты и отдела
+            if (row.length < 4 || !row[1] || !row[3]) {
+                console.log(`🟡 Неполная строка ${i + 1}:`, row);
+                errorShiftsCount++;
+                continue;
+            }
             
-            // Фильтруем только активные смены
-            if (shift.status === 'active') {
-                shifts.push(shift);
+            try {
+                // Создаем объект смены с проверкой каждого поля
+                const shift = {
+                    id: (row[0]?.toString() || (i).toString()).trim(),
+                    date: (row[1]?.toString() || 'Не указана').trim(),
+                    time: (row[2]?.toString() || 'Не указано').trim(),
+                    department: (row[3]?.toString() || 'Не указан').trim(),
+                    requiredPeople: 0,
+                    signedUp: [],
+                    status: 'active',
+                    pendingApproval: [],
+                    approved: []
+                };
+                
+                // Обрабатываем количество людей
+                if (row[4] !== undefined && row[4] !== null && row[4] !== '') {
+                    shift.requiredPeople = parseInt(row[4].toString().trim());
+                    if (isNaN(shift.requiredPeople) || shift.requiredPeople < 0) {
+                        shift.requiredPeople = 0;
+                    }
+                }
+                
+                // Обрабатываем статус
+                if (row[6] !== undefined && row[6] !== null) {
+                    const status = row[6].toString().trim().toLowerCase();
+                    shift.status = (status === 'active' || status === 'активно') ? 'active' : 
+                                  (status === 'inactive' || status === 'неактивно') ? 'inactive' : 
+                                  (status === 'completed' || status === 'завершено') ? 'completed' : 'active';
+                }
+                
+                // Обрабатываем списки участников
+                const processUserList = (listString) => {
+                    if (!listString) return [];
+                    return listString.toString()
+                        .split(',')
+                        .map(name => name.trim())
+                        .filter(name => name.length > 0);
+                };
+                
+                if (row[5]) shift.signedUp = processUserList(row[5]);
+                if (row[7]) shift.pendingApproval = processUserList(row[7]);
+                if (row[8]) shift.approved = processUserList(row[8]);
+                
+                // Валидация данных
+                if (!shift.date || shift.date === 'Не указана') {
+                    console.log(`🟡 Смена ${shift.id}: отсутствует дата`);
+                }
+                
+                if (!shift.department || shift.department === 'Не указан') {
+                    console.log(`🟡 Смена ${shift.id}: отсутствует отдел`);
+                }
+                
+                // Добавляем в соответствующий список
+                if (shift.status === 'active') {
+                    shifts.push(shift);
+                    activeShiftsCount++;
+                    
+                    console.log(`✅ Активная смена: ID=${shift.id}, Дата=${shift.date}, Отдел=${shift.department}, Нужно=${shift.requiredPeople} чел.`);
+                } else {
+                    inactiveShiftsCount++;
+                    console.log(`⚪ Неактивная смена: ID=${shift.id}, Дата=${shift.date}, Статус=${shift.status}`);
+                }
+                
+            } catch (rowError) {
+                console.error(`❌ Ошибка обработки строки ${i + 1}:`, rowError);
+                console.log('Проблемная строка:', row);
+                errorShiftsCount++;
             }
         }
         
-        console.log(`Найдено ${shifts.length} активных смен`);
+        // Сортируем смены по дате (самые свежие первые)
+        shifts.sort((a, b) => {
+            try {
+                const dateA = parseDate(a.date);
+                const dateB = parseDate(b.date);
+                return dateA - dateB;
+            } catch (error) {
+                return 0;
+            }
+        });
+        
+        console.log(`📊 Итоги загрузки смен:
+   • Активных: ${activeShiftsCount}
+   • Неактивных: ${inactiveShiftsCount}
+   • С ошибками: ${errorShiftsCount}
+   • Всего обработано: ${activeShiftsCount + inactiveShiftsCount + errorShiftsCount}`);
+        
         return shifts;
         
     } catch (error) {
-        console.error('Ошибка при получении смен:', error);
+        console.error('❌ Критическая ошибка при получении смен:', error);
+        
+        if (error.code === 404) {
+            console.error('❌ Таблица "Подработки" не найдена! Проверьте название листа и доступы.');
+        } else if (error.code === 403) {
+            console.error('❌ Нет доступа к таблице! Проверьте права доступа сервисного аккаунта.');
+        }
+        
         return [];
     }
 }
+
+// Вспомогательная функция для парсинга дат
+function parseDate(dateString) {
+    if (!dateString) return new Date(0);
+    
+    // Пробуем разные форматы дат
+    const formats = [
+        /(\d{2})\.(\d{2})\.(\d{4})/, // DD.MM.YYYY
+        /(\d{4})-(\d{2})-(\d{2})/,    // YYYY-MM-DD
+        /(\d{1,2})\/(\d{1,2})\/(\d{4})/ // MM/DD/YYYY
+    ];
+    
+    for (const format of formats) {
+        const match = dateString.match(format);
+        if (match) {
+            let day, month, year;
+            
+            if (format === formats[0]) { // DD.MM.YYYY
+                day = parseInt(match[1]);
+                month = parseInt(match[2]) - 1;
+                year = parseInt(match[3]);
+            } else if (format === formats[1]) { // YYYY-MM-DD
+                year = parseInt(match[1]);
+                month = parseInt(match[2]) - 1;
+                day = parseInt(match[3]);
+            } else { // MM/DD/YYYY
+                month = parseInt(match[1]) - 1;
+                day = parseInt(match[2]);
+                year = parseInt(match[3]);
+            }
+            
+            return new Date(year, month, day);
+        }
+    }
+    
+    // Если не удалось распарсить, возвращаем старую дату
+    return new Date(0);
+}
+
+// Добавьте эту функцию для проверки структуры таблицы
+async function debugShiftTableStructure() {
+    try {
+        console.log('🔍 Проверка структуры таблицы "Подработки"...');
+        
+        const result = await googleSheetsClient.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Подработки!A:I'
+        });
+        
+        const rows = result.data.values || [];
+        console.log('=== СТРУКТУРА ТАБЛИЦЫ ПОДРАБОТОК ===');
+        console.log('Всего строк:', rows.length);
+        
+        if (rows.length > 0) {
+            console.log('Заголовки:', rows[0].map((header, index) => `${index + 1}. ${header || '(пусто)'}`).join(', '));
+        }
+        
+        // Показываем первые 5 строк данных
+        for (let i = 1; i <= Math.min(5, rows.length - 1); i++) {
+            const row = rows[i];
+            console.log(`Строка ${i + 1}:`, row ? row.map(cell => cell || '(пусто)') : 'ПУСТАЯ СТРОКА');
+        }
+        
+        // Статистика по колонкам
+        if (rows.length > 1) {
+            const columnStats = [];
+            for (let col = 0; col < Math.min(9, rows[0].length); col++) {
+                const filled = rows.slice(1).filter(row => row && row[col]).length;
+                columnStats.push(`Колонка ${col + 1}: ${filled}/${rows.length - 1} заполнено`);
+            }
+            console.log('Статистика заполнения:', columnStats.join(', '));
+        }
+        
+        console.log('=== КОНЕЦ АНАЛИЗА СТРУКТУРЫ ===');
+        
+    } catch (error) {
+        console.error('❌ Ошибка при анализе структуры таблицы:', error);
+    }
+}
+
 
 async function updateShiftInSheet(shift) {
     try {
@@ -307,27 +481,28 @@ async function updateShiftInSheet(shift) {
     }
 }
 
-// ДОБАВЬТЕ эту функцию для отладки (она поможет понять структуру данных):
-async function debugShiftTable() {
+async function debugTableStructure() {
     try {
         const result = await googleSheetsClient.spreadsheets.values.get({
             spreadsheetId: SPREADSHEET_ID,
             range: 'Подработки!A:I'
         });
         
-        const rows = result.data.values || [];
-        console.log('=== ДЕБАГ ТАБЛИЦЫ ПОДРАБОТОК ===');
-        console.log('Заголовки:', rows[0] || 'Нет заголовков');
+        console.log('=== СТРУКТУРА ТАБЛИЦЫ ПОДРАБОТОК ===');
+        console.log('Заголовки:', result.data.values[0]);
+        console.log('Первые 5 строк:');
         
-        for (let i = 1; i < rows.length; i++) {
-            console.log(`Строка ${i}:`, rows[i]);
+        for (let i = 1; i <= Math.min(5, result.data.values.length - 1); i++) {
+            const row = result.data.values[i];
+            console.log(`Строка ${i}:`, row);
+            
+            // Проверяем структуру
+            if (row && row.length > 0) {
+                console.log(`ID: ${row[0]}, Тип: ${typeof row[0]}`);
+            }
         }
-        console.log('=== КОНЕЦ ДЕБАГА ===');
-        
-        return rows;
     } catch (error) {
-        console.error('Ошибка при отладке таблицы:', error);
-        return [];
+        console.error('Ошибка при анализе структуры:', error);
     }
 }
 
@@ -624,6 +799,13 @@ bot.command('admin', async (ctx) => {
     } catch (error) {
         console.error('Ошибка в команде /admin:', error);
         await ctx.reply('❌ Ошибка при открытии панели администратора.');
+    }
+});
+
+bot.command('debug_structure', async (ctx) => {
+    if (await isAdmin(ctx.from.id)) {
+        await debugTableStructure();
+        await ctx.reply('✅ Структура таблицы проверена. Смотрите логи.');
     }
 });
 
@@ -1500,23 +1682,53 @@ bot.action(/^shift_detail_/, async (ctx) => {
         const [action, shiftId] = ctx.callbackQuery.data.split('_');
         const { availableShifts, userFio } = ctx.session;
 
-        console.log('Поиск смены ID:', shiftId, 'в массиве из', availableShifts.length, 'смен');
+        console.log('🔍 Поиск смены ID:', shiftId);
+        console.log('Доступные смены в сессии:', availableShifts.map(s => ({id: s.id, date: s.date, status: s.status})));
         
-        // Логируем все доступные смены для отладки
-        availableShifts.forEach((s, i) => {
-            console.log(`Смена ${i}: ID=${s.id}, Дата=${s.date}, Статус=${s.status}`);
-        });
-
         // Ищем смену в сохраненном массиве
-        const shift = availableShifts.find(s => s.id.toString() === shiftId.toString());
+        let shift = availableShifts.find(s => s.id.toString() === shiftId.toString());
         
         if (!shift) {
-            console.log('Смена не найдена! Доступные ID:', availableShifts.map(s => s.id));
-            await ctx.answerCbQuery('❌ Смена не найдена');
-            return;
+            console.log('❌ Смена не найдена в сессии! Ищем в таблице заново...');
+            
+            // Попробуем найти смену непосредственно в таблице
+            const allShifts = await getAvailableShifts();
+            const freshShift = allShifts.find(s => s.id.toString() === shiftId.toString());
+            
+            if (freshShift) {
+                console.log('✅ Смена найдена при прямом обращении к таблице');
+                shift = freshShift;
+                // Обновляем сессию
+                ctx.session.availableShifts = allShifts;
+            } else {
+                console.log('❌ Смена не найдена даже при прямом обращении к таблице');
+                console.log('Все доступные ID:', allShifts.map(s => s.id));
+                
+                await ctx.answerCbQuery('❌ Смена не найдена');
+                
+                // Показываем сообщение с возможностью обновить список
+                await ctx.editMessageText('❌ *Смена не найдена*\n\nВозможные причины:\n• Смена была удалена\n• Изменился статус смены\n• Проблема с подключением к таблице\n\nПопробуйте обновить список смен:', {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '🔄 Обновить список', callback_data: 'work_shifts_list' }],
+                            [{ text: '↩️ Назад', callback_data: 'menu_show_work' }]
+                        ]
+                    }
+                });
+                return;
+            }
         }
         
-        console.log('Найдена смена:', shift);
+        console.log('✅ Найдена смена:', {
+            id: shift.id,
+            date: shift.date,
+            time: shift.time,
+            department: shift.department,
+            requiredPeople: shift.requiredPeople,
+            approved: shift.approved.length,
+            pending: shift.pendingApproval.length
+        });
         
         const shiftInfo = `📅 *ДЕТАЛИ СМЕНЫ*\n\n` +
                          `🗓️ *Дата:* ${shift.date}\n` +
@@ -1525,26 +1737,88 @@ bot.action(/^shift_detail_/, async (ctx) => {
                          `👥 *Требуется человек:* ${shift.requiredPeople}\n` +
                          `✅ *Подтверждено:* ${shift.approved.length}/${shift.requiredPeople}\n` +
                          `⏳ *Ожидают подтверждения:* ${shift.pendingApproval.length}\n\n`;
+        
+        // Проверяем статусы пользователя
+        const userStatus = [];
+        if (shift.approved.includes(userFio)) {
+            userStatus.push('✅ Ваша заявка подтверждена');
+        }
+        if (shift.pendingApproval.includes(userFio)) {
+            userStatus.push('⏳ Ваша заявка на рассмотрении');
+        }
+        if (shift.signedUp.includes(userFio)) {
+            userStatus.push('📝 Вы записаны на эту смену');
+        }
+        
+        let statusMessage = '';
+        if (userStatus.length > 0) {
+            statusMessage = `*Ваш статус:*\n${userStatus.join('\n')}\n\n`;
+        }
+        
+        // Проверяем, можно ли еще записываться
+        const availableSlots = shift.requiredPeople - (shift.approved.length + shift.pendingApproval.length);
+        let actionMessage = '';
+        
+        if (availableSlots <= 0) {
+            actionMessage = '❌ *Мест больше нет*\n\nНа эту смену уже набрано достаточное количество человек.';
+        } else if (shift.approved.includes(userFio) || shift.pendingApproval.includes(userFio) || shift.signedUp.includes(userFio)) {
+            actionMessage = 'ℹ️ *Вы уже подали заявку* на эту смену. Ожидайте подтверждения.';
+        } else {
+            actionMessage = `✅ *Есть свободные места:* ${availableSlots} из ${shift.requiredPeople}`;
+        }
 
-        const detailKeyboard = [
-            [
+        const detailKeyboard = [];
+        
+        // Добавляем кнопку записи только если есть места и пользователь еще не записан
+        if (availableSlots > 0 && 
+            !shift.approved.includes(userFio) && 
+            !shift.pendingApproval.includes(userFio) && 
+            !shift.signedUp.includes(userFio)) {
+            detailKeyboard.push([
                 { 
                     text: '📝 Подать заявку', 
                     callback_data: `shift_signup_${shiftId}`
                 }
-            ],
-            [
-                { text: '↩️ К списку смен', callback_data: 'work_shifts_list' }
-            ]
-        ];
+            ]);
+        }
+        
+        detailKeyboard.push([
+            { text: '↩️ К списку смен', callback_data: 'work_shifts_list' }
+        ]);
 
-        await ctx.editMessageText(shiftInfo, {
+        const fullMessage = shiftInfo + statusMessage + actionMessage;
+
+        await ctx.editMessageText(fullMessage, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: detailKeyboard }
         });
         
+        await ctx.answerCbQuery();
+        
     } catch (error) {
-        console.error('Ошибка при получении деталей смены:', error);
+        console.error('❌ Ошибка при получении деталей смены:', error);
+        
+        try {
+            await ctx.editMessageText('❌ *Ошибка при загрузке деталей смены*\n\nПопробуйте позже или обратитесь к администратору.', {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Попробовать снова', callback_data: 'work_shifts_list' }],
+                        [{ text: '↩️ Назад', callback_data: 'menu_show_work' }]
+                    ]
+                }
+            });
+        } catch (editError) {
+            // Если не удалось отредактировать сообщение, отправляем новое
+            await ctx.reply('❌ Произошла ошибка при загрузке деталей смены.', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '🔄 Обновить', callback_data: 'work_shifts_list' }]
+                    ]
+                }
+            });
+        }
+        
         await ctx.answerCbQuery('❌ Ошибка при загрузке деталей смены');
     }
 });
