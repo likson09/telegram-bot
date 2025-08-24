@@ -2660,23 +2660,56 @@ bot.action(/^month_detail_/, async (ctx) => {
         const callbackData = ctx.callbackQuery.data;
         console.log('🔍 DEBUG: Получен callback_data:', callbackData);
         
-        // ЭКСТРЕННАЯ ОТЛАДКА - выводим все символы
+        // ЭКСТРЕННАЯ ОТЛАДКА - выводим все символы с кодами
         console.log('🔍 CHAR CODES ANALYSIS:');
         for (let i = 0; i < callbackData.length; i++) {
             const char = callbackData[i];
             const code = callbackData.charCodeAt(i);
-            console.log(`  Position ${i}: '${char}' = ${code} (${code.toString(16)})`);
+            console.log(`  ${i}: '${char}' = ${code} (0x${code.toString(16)}) ${code < 32 ? '⚠️НЕВИДИМЫЙ⚠️' : ''}`);
         }
         
         const parts = callbackData.split('_');
         console.log('🔍 Parts after split:', parts);
         console.log('🔍 Parts lengths:', parts.map(p => p.length));
-        console.log('🔍 Parts types:', parts.map(p => typeof p));
         
-        // АВАРИЙНЫЙ РЕЖИМ - принудительно берем значения из лога
+        // АВАРИЙНЫЙ РЕЖИМ - принудительно берем значения
         console.log('🚨 EMERGENCY MODE: Using forced values month=7, year=2025');
         const forcedMonth = 7;
         const forcedYear = 2025;
+        
+        // ПРОБУЕМ ПАРСИТЬ РАЗНЫМИ СПОСОБАМИ
+        console.log('🔍 Trying different parsing methods:');
+        
+        // Способ 1: Обычный
+        try {
+            const month1 = parseInt(parts[2]);
+            const year1 = parseInt(parts[3]);
+            console.log(`  Method 1: month=${month1}, year=${year1}, valid=${!isNaN(month1) && !isNaN(year1)}`);
+        } catch (e) {
+            console.log('  Method 1: ERROR', e.message);
+        }
+        
+        // Способ 2: С очисткой
+        try {
+            const month2 = parseInt(parts[2].replace(/[^\d]/g, ''));
+            const year2 = parseInt(parts[3].replace(/[^\d]/g, ''));
+            console.log(`  Method 2: month=${month2}, year=${year2}, valid=${!isNaN(month2) && !isNaN(year2)}`);
+        } catch (e) {
+            console.log('  Method 2: ERROR', e.message);
+        }
+        
+        // Способ 3: Ручной парсинг
+        try {
+            console.log('  Method 3: Manual analysis');
+            console.log(`    parts[2] = '${parts[2]}', length=${parts[2].length}`);
+            console.log(`    parts[3] = '${parts[3]}', length=${parts[3].length}`);
+            
+            // Выводим коды каждого символа
+            console.log('    parts[2] char codes:', Array.from(parts[2]).map(c => c.charCodeAt(0)));
+            console.log('    parts[3] char codes:', Array.from(parts[3]).map(c => c.charCodeAt(0)));
+        } catch (e) {
+            console.log('  Method 3: ERROR', e.message);
+        }
         
         const sessionData = ctx.session.currentData;
         
@@ -2747,10 +2780,6 @@ bot.action(/^month_detail_/, async (ctx) => {
         
     } catch (error) {
         console.error('❌ Ошибка при детализации:', error);
-        await ctx.editMessageText('❌ Не удалось получить детализированные данные. Попробуйте позже.', {
-            reply_markup: { inline_keyboard: createBackButton() }
-        });
-        await ctx.answerCbQuery();
     }
 });
 
