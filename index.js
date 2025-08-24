@@ -456,6 +456,20 @@ function parseDate(dateString) {
     return new Date(0);
 }
 
+// Функция для отправки уведомлений пользователю
+async function notifyUser(userId, message) {
+    try {
+        await bot.telegram.sendMessage(userId, message, { 
+            parse_mode: 'Markdown' 
+        });
+        console.log(`✅ Уведомление отправлено пользователю ${userId}`);
+        return true;
+    } catch (error) {
+        console.error(`❌ Ошибка отправки уведомления пользователю ${userId}:`, error);
+        return false;
+    }
+}
+
 // Добавьте эту функцию для проверки структуры таблицы
 async function debugShiftTableStructure() {
     try {
@@ -623,14 +637,23 @@ function extractUserId(userString) {
 // Обновите approveApplication для нового формата
 async function approveApplication(shiftId, userString, adminId) {
     try {
+        console.log(`🔍 Поиск смены ${shiftId} для подтверждения заявки ${userString}`);
+        
         const shifts = await getAvailableShifts();
         const shift = shifts.find(s => s.id.toString() === shiftId.toString());
         
         if (!shift) {
+            console.log('❌ Смена не найдена');
             throw new Error('Смена не найдена');
         }
         
+        console.log('📊 Статус смены:', {
+            pending: shift.pendingApproval,
+            approved: shift.approved
+        });
+        
         if (!shift.pendingApproval.includes(userString)) {
+            console.log('❌ Заявка не найдена в ожидающих');
             throw new Error('Заявка не найдена в ожидающих');
         }
         
@@ -645,23 +668,106 @@ async function approveApplication(shiftId, userString, adminId) {
         
         // Отправляем уведомление пользователю
         if (userId) {
-            const notificationMessage = `🎉 *ВАША ЗАЯВКА ПОДТВЕРЖДЕНА!*\n\n` +
-                                      `📅 Смена: ${shift.date} ${shift.time}\n` +
-                                      `🏢 Отдел: ${shift.department}\n` +
-                                      `✅ Статус: Подтверждена администратором\n\n` +
-                                      `Ждем вас на смене! 💪`;
-            
-            await notifyUser(userId, notificationMessage);
+            try {
+                const notificationMessage = `🎉 *ВАША ЗАЯВКА ПОДТВЕРЖДЕНА!*\n\n` +
+                                          `📅 Смена: ${shift.date} ${shift.time}\n` +
+                                          `🏢 Отдел: ${shift.department}\n` +
+                                          `✅ Статус: Подтверждена администратором\n\n` +
+                                          `Ждем вас на смене! 💪`;
+                
+                await bot.telegram.sendMessage(userId, notificationMessage, { 
+                    parse_mode: 'Markdown' 
+                });
+                console.log(`✅ Уведомление отправлено пользователю ${userName} (ID: ${userId})`);
+            } catch (notificationError) {
+                console.error('❌ Ошибка при отправке уведомления:', notificationError);
+            }
+        } else {
+            console.log(`⚠️ Не удалось отправить уведомление пользователю ${userName} - ID не найден`);
         }
         
         return { success: true, shift };
     } catch (error) {
-        console.error('Ошибка при подтверждении заявки:', error);
+        console.error('❌ Ошибка при подтверждении заявки:', error);
         throw error;
     }
 }
 
-async function approveApplication(shiftId, userName, adminId) {
+// Функция для сохранения/обновления пользователя
+async function saveUser(fio, userId) {
+    try {
+        const result = await googleSheetsClient.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Пользователи!A:B'
+        });
+        
+        const rows = result.data.values || [];
+        let rowIndex = -1;
+        
+        // Ищем пользователя
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i][0] === fio) {
+                rowIndex = i + 1;
+                break;
+            }
+        }
+        
+        if (rowIndex === -1) {
+            // Добавляем нового пользователя
+            await googleSheetsClient.spreadsheets.values.append({
+                spreadsheetId: SPREADSHEET_ID,
+                range: 'Пользователи!A:B',
+                valueInputOption: 'RAW',
+                resource: {
+                    values: [[fio, userId]]
+                }
+            });
+            console.log(`✅ Пользователь ${fio} добавлен в таблицу`);
+        } else {
+            // Обновляем существующего пользователя
+            await googleSheetsClient.spreadsheets.values.update({
+                spreadsheetId: SPREADSHEET_ID,
+                range: `Пользователи!B${rowIndex}`,
+                valueInputOption: 'RAW',
+                resource: {
+                    values: [[userId]]
+                }
+            });
+            console.log(`✅ ID пользователя ${fio} обновлен`);
+        }
+        
+        return true;
+    } catch (error) {
+        console.error('❌ Ошибка при сохранении пользователя:', error);
+        return false;
+    }
+}
+
+// Функция для поиска ID пользователя по ФИО
+async function findUserIdByFio(fio) {
+    try {
+        const result = await googleSheetsClient.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Пользователи!A:B'
+        });
+        
+        const rows = result.data.values || [];
+        for (let i = 1; i < rows.length; i++) {
+            if (rows[i][0] && rows[i][0].trim() === fio.trim() && rows[i][1]) {
+                return parseInt(rows[i][1]);
+            }
+        }
+        
+        console.log(`⚠️ ID пользователя для ${fio} не найден в таблице`);
+        return null;
+        
+    } catch (error) {
+        console.error('❌ Ошибка при поиске ID пользователя:', error);
+        return null;
+    }
+}
+
+async function rejectApplication(shiftId, userString, adminId) {
     try {
         const shifts = await getAvailableShifts();
         const shift = shifts.find(s => s.id.toString() === shiftId.toString());
@@ -670,40 +776,32 @@ async function approveApplication(shiftId, userName, adminId) {
             throw new Error('Смена не найдена');
         }
         
-        if (!shift.pendingApproval.includes(userName)) {
+        if (!shift.pendingApproval.includes(userString)) {
             throw new Error('Заявка не найдена в ожидающих');
         }
         
-        // Переносим из pending в approved
-        shift.pendingApproval = shift.pendingApproval.filter(name => name !== userName);
-        shift.approved.push(userName);
-        
-        await updateShiftInSheet(shift);
-        
-        return { success: true, shift };
-    } catch (error) {
-        console.error('Ошибка при подтверждении заявки:', error);
-        throw error;
-    }
-}
-
-async function rejectApplication(shiftId, userName, adminId) {
-    try {
-        const shifts = await getAvailableShifts();
-        const shift = shifts.find(s => s.id.toString() === shiftId.toString());
-        
-        if (!shift) {
-            throw new Error('Смена не найдена');
-        }
-        
-        if (!shift.pendingApproval.includes(userName)) {
-            throw new Error('Заявка не найдена в ожидающих');
-        }
+        const userName = extractUserName(userString);
+        const userId = extractUserId(userString);
         
         // Удаляем из pending
-        shift.pendingApproval = shift.pendingApproval.filter(name => name !== userName);
+        shift.pendingApproval = shift.pendingApproval.filter(item => item !== userString);
         
         await updateShiftInSheet(shift);
+        
+        // Отправляем уведомление пользователю об отклонении
+        if (userId) {
+            try {
+                const notificationMessage = `❌ *ВАША ЗАЯВКА ОТКЛОНЕНА*\n\n` +
+                                          `📅 Смена: ${shift.date} ${shift.time}\n` +
+                                          `🏢 Отдел: ${shift.department}\n` +
+                                          `📝 Статус: Отклонена администратором\n\n` +
+                                          `Вы можете подать заявку на другую смену.`;
+                
+                await notifyUser(userId, notificationMessage);
+            } catch (notificationError) {
+                console.error('Ошибка при отправке уведомления об отклонении:', notificationError);
+            }
+        }
         
         return { success: true, shift };
     } catch (error) {
@@ -723,7 +821,7 @@ async function getPendingApplications() {
                 applications.push({
                     shiftId: shift.id,
                     userName: userName,
-                    userString: userString, // Сохраняем полную строку с ID
+                    userString: userString, // ← ВАЖНО: сохраняем полную строку
                     date: shift.date,
                     time: shift.time,
                     department: shift.department,
@@ -1896,9 +1994,10 @@ bot.action(/^admin_app_approve_/, async (ctx) => {
             return;
         }
 
+        // Передаем userString вместо userName
         const result = await approveApplication(
             application.shiftId, 
-            application.userName, 
+            application.userString, // ИЗМЕНИТЕ ЗДЕСЬ
             ctx.from.id
         );
 
@@ -1918,8 +2017,6 @@ bot.action(/^admin_app_approve_/, async (ctx) => {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: createBackButton('admin_applications') }
             });
-
-            // TODO: Отправить уведомление сотруднику о подтверждении
         }
 
     } catch (error) {
@@ -1944,9 +2041,10 @@ bot.action(/^admin_app_reject_/, async (ctx) => {
             return;
         }
 
+        // Передаем userString вместо userName
         const result = await rejectApplication(
             application.shiftId, 
-            application.userName, 
+            application.userString, // ИЗМЕНИТЕ ЗДЕСЬ
             ctx.from.id
         );
 
@@ -1965,8 +2063,6 @@ bot.action(/^admin_app_reject_/, async (ctx) => {
                 parse_mode: 'Markdown',
                 reply_markup: { inline_keyboard: createBackButton('admin_applications') }
             });
-
-            // TODO: Отправить уведомление сотруднику об отклонении
         }
 
     } catch (error) {
