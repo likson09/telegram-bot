@@ -643,6 +643,28 @@ function formatDateShort(dateString) {
     }
 }
 
+function parseMonthCallbackData(callbackData) {
+    const parts = callbackData.split('_');
+    
+    if (parts.length < 3) {
+        throw new Error('Неверный формат callback данных');
+    }
+    
+    const month = parseInt(parts[1]);
+    const year = parseInt(parts[2]);
+    
+    if (isNaN(month) || isNaN(year)) {
+        throw new Error('Неверные параметры даты');
+    }
+    
+    // Проверка валидности месяца
+    if (month < 0 || month > 11) {
+        throw new Error('Неверный номер месяца');
+    }
+    
+    return { month, year };
+}
+
 function formatTime(timeString) {
     if (!timeString) return '??:??';
     return timeString.split('-')[0]; // Берем только время начала
@@ -2565,14 +2587,22 @@ bot.action(/^month_/, async (ctx) => {
         console.log('📊 Parts:', parts);
         
         if (parts.length < 3) {
+            console.log('❌ Неверный формат callback_data');
             await ctx.answerCbQuery('Ошибка формата');
             return;
         }
         
-        const month = parseInt(parts[1]);
-        const year = parseInt(parts[2]);
+        const month = parseInt(parts[1]); // БЫЛО: parts[1] - ПРАВИЛЬНО
+        const year = parseInt(parts[2]);  // БЫЛО: parts[2] - ПРАВИЛЬНО
         
         console.log(`📅 Выбран месяц: ${month}, год: ${year}`);
+        
+        // Проверка валидности данных
+        if (isNaN(month) || isNaN(year)) {
+            console.log('❌ Неверные параметры месяца/года');
+            await ctx.answerCbQuery('Ошибка данных');
+            return;
+        }
         
         const fullFio = ctx.session.userFio;
         
@@ -2584,6 +2614,7 @@ bot.action(/^month_/, async (ctx) => {
         const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
         
+        // Проверка валидности месяца
         if (month < 0 || month >= monthNames.length) {
             console.log(`❌ Неверный номер месяца: ${month}`);
             await ctx.answerCbQuery('Неизвестный месяц');
@@ -2592,7 +2623,7 @@ bot.action(/^month_/, async (ctx) => {
         
         const monthName = monthNames[month];
         
-        // Получаем данные производительности
+        // Получаем данные производительности (месяц + 1, так как в Google Sheets месяцы 1-12)
         const productivityData = await getProductivityData(fullFio, year, month + 1);
         
         if (!productivityData) {
@@ -2650,20 +2681,28 @@ bot.action(/^month_detail_/, async (ctx) => {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для детализации:', callbackData);
         
-        // Правильно извлекаем month и year - они на позициях 2 и 3
+        // ИСПРАВЛЕНИЕ: Правильно извлекаем month и year - позиции 1 и 2
         const parts = callbackData.split('_');
         console.log('📊 Parts:', parts);
         
-        if (parts.length < 4) {
+        if (parts.length < 3) {
             console.log('❌ Неверный формат callback_data');
             await ctx.answerCbQuery('Ошибка формата');
             return;
         }
         
-        const month = parseInt(parts[2]); // month на позиции 2
-        const year = parseInt(parts[3]);  // year на позиции 3
+        // ИСПРАВЛЕНИЕ: parts[1] и parts[2] вместо parts[2] и parts[3]
+        const month = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
         
         console.log(`📊 Детализация для месяца: ${month}, года: ${year}`);
+        
+        // Проверка валидности данных
+        if (isNaN(month) || isNaN(year)) {
+            console.log('❌ Неверные параметры месяца/года');
+            await ctx.answerCbQuery('Ошибка данных');
+            return;
+        }
         
         const sessionData = ctx.session.currentData;
         
@@ -2678,7 +2717,7 @@ bot.action(/^month_detail_/, async (ctx) => {
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
         // Проверяем валидность месяца
-        if (isNaN(month) || month < 0 || month >= monthNames.length) {
+        if (month < 0 || month >= monthNames.length) {
             console.log(`❌ Неверный номер месяца: ${month}`);
             await ctx.answerCbQuery('Неизвестный месяц');
             return;
