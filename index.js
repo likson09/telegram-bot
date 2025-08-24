@@ -212,7 +212,6 @@ async function checkEmployeeExists(fio) {
     }
 }
 
-// Функции для работы с подработками
 async function getAvailableShifts() {
     try {
         const sheets = await connectToGoogleSheets();
@@ -224,8 +223,8 @@ async function getAvailableShifts() {
         const rows = result.data.values || [];
         if (rows.length < 2) return [];
         
-        return rows.slice(1).filter(row => row.length >= 7 && row[6] === 'active').map(row => ({
-            id: row[0],
+        return rows.slice(1).filter(row => row.length >= 7 && row[6] === 'active').map((row, index) => ({
+            id: row[0] || (index + 1).toString(), // Используем ID из таблицы или индекс
             date: row[1],
             time: row[2],
             department: row[3],
@@ -297,7 +296,8 @@ async function getUserApplications(userName) {
 async function getShiftById(shiftId) {
     try {
         const shifts = await getAvailableShifts();
-        return shifts.find(shift => shift.id === shiftId);
+        // Ищем смену по ID (преобразуем оба значения к строкам для сравнения)
+        return shifts.find(shift => shift.id.toString() === shiftId.toString());
     } catch (error) {
         console.error('Ошибка при поиске смены:', error);
         return null;
@@ -505,6 +505,29 @@ bot.command('podrabotka', async (ctx) => {
     }
 });
 
+// Добавьте эту команду для проверки
+bot.command('debug_shifts', async (ctx) => {
+    try {
+        const shifts = await getAvailableShifts();
+        let message = '🔧 *ДЕБАГ СМЕН:*\n\n';
+        
+        if (shifts.length === 0) {
+            message += '📭 Нет доступных смен';
+        } else {
+            shifts.forEach((shift, index) => {
+                message += `${index + 1}. ID: ${shift.id} | ${shift.date} ${shift.time}\n`;
+                message += `   Отдел: ${shift.department} | Нужно: ${shift.requiredPeople}\n`;
+                message += `   Статус: ${shift.status}\n\n`;
+            });
+        }
+        
+        await ctx.reply(message, { parse_mode: 'Markdown' });
+    } catch (error) {
+        console.error('Ошибка при отладке:', error);
+        await ctx.reply('❌ Ошибка при получении данных смен');
+    }
+});
+
 // Обработчик для отмены создания
 bot.action('cancel_creation', async (ctx) => {
     ctx.session.creatingShift = false;
@@ -565,7 +588,7 @@ bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
 
     // Обработка создания смены через команду /podrabotka
-if (ctx.session.creatingShift) {
+    if (ctx.session.creatingShift) {
     try {
         const text = ctx.message.text.trim();
         
@@ -1239,12 +1262,18 @@ bot.action(/^shift_detail_/, async (ctx) => {
         const [action, shiftId, shortFio, userId] = ctx.callbackQuery.data.split('_');
         const fullFio = ctx.session?.fullFio;
 
+        console.log('Поиск смены с ID:', shiftId);
+        
         const shift = await getShiftById(shiftId);
+        
         if (!shift) {
+            console.log('Смена не найдена. Доступные смены:', await getAvailableShifts());
             await ctx.answerCbQuery('❌ Смена не найдена');
             return;
         }
 
+        console.log('Найдена смена:', shift);
+        
         const shiftInfo = `📅 *ДЕТАЛИ СМЕНЫ*\n\n` +
                          `🗓️ *Дата:* ${shift.date}\n` +
                          `⏰ *Время:* ${shift.time}\n` +
