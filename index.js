@@ -573,9 +573,10 @@ async function debugTableStructure() {
     }
 }
 
+// Обновите функцию signUpForShift для сохранения ID пользователя
 async function signUpForShift(userId, userName, shiftId) {
     try {
-        console.log(`📝 Попытка записи пользователя ${userName} на смену ${shiftId}`);
+        console.log(`📝 Попытка записи пользователя ${userName} (ID: ${userId}) на смену ${shiftId}`);
         
         const shifts = await getAvailableShifts();
         const shift = shifts.find(s => s.id.toString() === shiftId.toString());
@@ -584,13 +585,11 @@ async function signUpForShift(userId, userName, shiftId) {
             throw new Error('Смена не найдена');
         }
         
-        console.log(`📊 Статус смены перед записью:`, {
-            approved: shift.approved,
-            pending: shift.pendingApproval,
-            signedUp: shift.signedUp
-        });
+        // Сохраняем ID пользователя вместе с ФИО
+        const userWithId = `${userName}|${userId}`;
         
-        if (shift.pendingApproval.includes(userName) || shift.approved.includes(userName)) {
+        if (shift.pendingApproval.some(item => item.startsWith(userName + '|')) || 
+            shift.approved.some(item => item.startsWith(userName + '|'))) {
             throw new Error('Вы уже подали заявку на эту смену');
         }
         
@@ -598,8 +597,8 @@ async function signUpForShift(userId, userName, shiftId) {
             throw new Error('На эту смену уже набрано достаточно людей');
         }
         
-        // Добавляем в ожидающие подтверждения
-        shift.pendingApproval.push(userName);
+        // Добавляем в ожидающие подтверждения с ID пользователя
+        shift.pendingApproval.push(userWithId);
         await updateShiftInSheet(shift);
         
         console.log(`✅ Пользователь ${userName} добавлен в pendingApproval смены ${shiftId}`);
@@ -607,6 +606,57 @@ async function signUpForShift(userId, userName, shiftId) {
         return true;
     } catch (error) {
         console.error('❌ Ошибка при записи на смену:', error);
+        throw error;
+    }
+}
+
+// Обновите функции для работы с новым форматом
+function extractUserName(userString) {
+    return userString.split('|')[0];
+}
+
+function extractUserId(userString) {
+    const parts = userString.split('|');
+    return parts.length > 1 ? parseInt(parts[1]) : null;
+}
+
+// Обновите approveApplication для нового формата
+async function approveApplication(shiftId, userString, adminId) {
+    try {
+        const shifts = await getAvailableShifts();
+        const shift = shifts.find(s => s.id.toString() === shiftId.toString());
+        
+        if (!shift) {
+            throw new Error('Смена не найдена');
+        }
+        
+        if (!shift.pendingApproval.includes(userString)) {
+            throw new Error('Заявка не найдена в ожидающих');
+        }
+        
+        const userName = extractUserName(userString);
+        const userId = extractUserId(userString);
+        
+        // Переносим из pending в approved
+        shift.pendingApproval = shift.pendingApproval.filter(item => item !== userString);
+        shift.approved.push(userString);
+        
+        await updateShiftInSheet(shift);
+        
+        // Отправляем уведомление пользователю
+        if (userId) {
+            const notificationMessage = `🎉 *ВАША ЗАЯВКА ПОДТВЕРЖДЕНА!*\n\n` +
+                                      `📅 Смена: ${shift.date} ${shift.time}\n` +
+                                      `🏢 Отдел: ${shift.department}\n` +
+                                      `✅ Статус: Подтверждена администратором\n\n` +
+                                      `Ждем вас на смене! 💪`;
+            
+            await notifyUser(userId, notificationMessage);
+        }
+        
+        return { success: true, shift };
+    } catch (error) {
+        console.error('Ошибка при подтверждении заявки:', error);
         throw error;
     }
 }
@@ -668,10 +718,12 @@ async function getPendingApplications() {
         const applications = [];
         
         for (const shift of shifts) {
-            for (const userName of shift.pendingApproval) {
+            for (const userString of shift.pendingApproval) {
+                const userName = extractUserName(userString);
                 applications.push({
                     shiftId: shift.id,
                     userName: userName,
+                    userString: userString, // Сохраняем полную строку с ID
                     date: shift.date,
                     time: shift.time,
                     department: shift.department,
@@ -691,9 +743,9 @@ async function getUserApplications(userName) {
     try {
         const shifts = await getAvailableShifts();
         return shifts.filter(shift => 
-            shift.signedUp.includes(userName) || 
-            shift.pendingApproval.includes(userName) || 
-            shift.approved.includes(userName)
+            shift.signedUp.some(item => extractUserName(item) === userName) || 
+            shift.pendingApproval.some(item => extractUserName(item) === userName) || 
+            shift.approved.some(item => extractUserName(item) === userName)
         );
     } catch (error) {
         console.error('Ошибка при получении заявок:', error);
