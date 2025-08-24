@@ -2729,6 +2729,8 @@ bot.action(/^month_detail_/, async (ctx) => {
             return;
         }
         
+        console.log(`📊 Детализация для месяца: ${month}, года: ${year}`);
+        
         const sessionData = ctx.session.currentData;
         
         if (!sessionData) {
