@@ -12,6 +12,9 @@ const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
+// Супер-админ (я)
+const SUPER_ADMIN_ID = 566632489;
+
 // Проверка обязательных переменных
 if (!BOT_TOKEN) {
     console.error('❌ BOT_TOKEN не настроен в переменных окружения');
@@ -71,7 +74,7 @@ async function connectToGoogleSheets() {
         const auth = new google.auth.JWT({
             email: credentials.client_email,
             key: credentials.private_key,
-            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
         });
 
         await auth.authorize();
@@ -84,6 +87,93 @@ async function connectToGoogleSheets() {
     } catch (error) {
         console.error('❌ Ошибка подключения к Google Sheets:', error.message);
         throw error;
+    }
+}
+
+// Функции для работы с администраторами
+async function getAdmins() {
+    try {
+        const sheets = await connectToGoogleSheets();
+        const result = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Администраторы!A:A'
+        });
+        
+        const rows = result.data.values || [];
+        // Первая строка - заголовок, поэтому берем все кроме нее
+        return rows.slice(1).map(row => parseInt(row[0])).filter(id => !isNaN(id));
+    } catch (error) {
+        console.error('Ошибка при получении списка администраторов:', error);
+        return [SUPER_ADMIN_ID]; // Возвращаем супер-админа по умолчанию
+    }
+}
+
+async function addAdmin(userId) {
+    try {
+        const sheets = await connectToGoogleSheets();
+        const currentAdmins = await getAdmins();
+        
+        if (currentAdmins.includes(userId)) {
+            throw new Error('Пользователь уже является администратором');
+        }
+        
+        await sheets.spreadsheets.values.append({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Администраторы!A:A',
+            valueInputOption: 'RAW',
+            resource: {
+                values: [[userId]]
+            }
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('Ошибка при добавлении администратора:', error);
+        throw error;
+    }
+}
+
+async function removeAdmin(userId) {
+    try {
+        const sheets = await connectToGoogleSheets();
+        const result = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Администраторы!A:A'
+        });
+        
+        const rows = result.data.values || [];
+        const updatedRows = rows.filter((row, index) => {
+            // Пропускаем заголовок и супер-админа
+            if (index === 0) return true;
+            if (parseInt(row[0]) === SUPER_ADMIN_ID) return true;
+            return parseInt(row[0]) !== userId;
+        });
+        
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Администраторы!A:A',
+            valueInputOption: 'RAW',
+            resource: {
+                values: updatedRows
+            }
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('Ошибка при удалении администратора:', error);
+        throw error;
+    }
+}
+
+async function isAdmin(userId) {
+    if (userId === SUPER_ADMIN_ID) return true;
+    
+    try {
+        const admins = await getAdmins();
+        return admins.includes(userId);
+    } catch (error) {
+        console.error('Ошибка при проверке прав администратора:', error);
+        return false;
     }
 }
 
@@ -122,6 +212,143 @@ async function checkEmployeeExists(fio) {
     } catch (error) {
         console.error('❌ Ошибка при проверке сотрудника:', error.message);
         throw new Error('Ошибка при проверке данных таблиц');
+    }
+}
+
+// Функции для работы с подработками
+async function getAvailableShifts() {
+    try {
+        const sheets = await connectToGoogleSheets();
+        const result = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: 'Подработки!A:G'
+        });
+        
+        const rows = result.data.values || [];
+        if (rows.length < 2) return [];
+        
+        return rows.slice(1).filter(row => row.length >= 7 && row[6] === 'active').map(row => ({
+            id: row[0],
+            date: row[1],
+            time: row[2],
+            department: row[3],
+            requiredPeople: parseInt(row[4] || 0),
+            signedUp: row[5] ? row[5].split(',').filter(Boolean) : [],
+            status: row[6]
+        }));
+    } catch (error) {
+        console.error('Ошибка при получении смен:', error);
+        return [];
+    }
+}
+
+async function signUpForShift(userId, userName, shiftId) {
+    try {
+        const sheets = await connectToGoogleSheets();
+        const shifts = await getAvailableShifts();
+        const shift = shifts.find(s => s.id === shiftId);
+        
+        if (!shift) {
+            throw new Error('Смена не найдена');
+        }
+        
+        if (shift.signedUp.includes(userName)) {
+            throw new Error('Вы уже записаны на эту смену');
+        }
+        
+        if (shift.signedUp.length >= shift.requiredPeople) {
+            throw new Error('На эту смену уже набрано достаточно людей');
+        }
+        
+        // Обновляем запись в таблице
+        const range = `Подработки!A${parseInt(shiftId) + 1}:G${parseInt(shiftId) + 1}`;
+        const newSignedUp = [...shift.signedUp, userName].join(',');
+        
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: SPREADSHEET_ID,
+            range: range,
+            valueInputOption: 'RAW',
+            resource: {
+                values: [[
+                    shift.id,
+                    shift.date,
+                    shift.time,
+                    shift.department,
+                    shift.requiredPeople,
+                    newSignedUp,
+                    shift.status
+                ]]
+            }
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('Ошибка при записи на смену:', error);
+        throw error;
+    }
+}
+
+async function getUserApplications(userName) {
+    try {
+        const shifts = await getAvailableShifts();
+        return shifts.filter(shift => shift.signedUp.includes(userName));
+    } catch (error) {
+        console.error('Ошибка при получении заявок:', error);
+        return [];
+    }
+}
+
+async function getShiftById(shiftId) {
+    try {
+        const shifts = await getAvailableShifts();
+        return shifts.find(shift => shift.id === shiftId);
+    } catch (error) {
+        console.error('Ошибка при поиске смены:', error);
+        return null;
+    }
+}
+
+async function getAllApplications() {
+    try {
+        const shifts = await getAvailableShifts();
+        const allApplications = [];
+        
+        shifts.forEach(shift => {
+            shift.signedUp.forEach(userName => {
+                allApplications.push({
+                    shiftId: shift.id,
+                    date: shift.date,
+                    time: shift.time,
+                    department: shift.department,
+                    userName: userName,
+                    status: 'pending'
+                });
+            });
+        });
+        
+        return allApplications;
+    } catch (error) {
+        console.error('Ошибка при получении заявок:', error);
+        return [];
+    }
+}
+
+async function updateApplicationStatus(shiftId, userName, status) {
+    try {
+        const sheets = await connectToGoogleSheets();
+        const shifts = await getAvailableShifts();
+        const shift = shifts.find(s => s.id === shiftId);
+        
+        if (!shift) {
+            throw new Error('Смена не найдена');
+        }
+        
+        // Здесь можно добавить логику обновления статуса в отдельной таблице
+        // Пока просто возвращаем успех
+        return true;
+    } catch (error) {
+        console.error('Ошибка при обновлении статуса:', error);
+        throw error;
     }
 }
 
@@ -164,7 +391,10 @@ bot.use((new LocalSession({
     storage: LocalSession.storageFileAsync,
     property: 'session',
     state: {
-        currentData: null
+        currentData: null,
+        creatingShift: false,
+        shiftData: {},
+        adminAction: null
     }
 })).middleware());
 
@@ -208,6 +438,10 @@ function createMainMenu(shortFio, userId, fio) {
             { 
                 text: '🚀 Производительность', 
                 callback_data: `p_${shortFio}_${userId}` 
+            },
+            { 
+                text: '💼 Подработки', 
+                callback_data: `work_${shortFio}_${userId}` 
             }
         ],
         [
@@ -229,32 +463,55 @@ function createBackButton(shortFio, userId) {
     ];
 }
 
-// Функция для создания красивого сообщения с разделителями
-function createSection(title, content) {
-    return `▫️ *${title}:*\n${content}\n`;
-}
-
-// Функция для создания прогресс-бара
-function createProgressBar(percentage, width = 10) {
-    const filled = Math.round((percentage / 100) * width);
-    const empty = width - filled;
-    return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${percentage.toFixed(1)}%`;
-}
-
 // Команда /start
 bot.start(async (ctx) => {
     console.log('Получена команда /start от пользователя:', ctx.from.id);
     try {
+        const isUserAdmin = await isAdmin(ctx.from.id);
         const welcomeMessage = `👋 *Добро пожаловать в бот статистики!*\n\n` +
                               `📈 Здесь вы можете получить информацию о:\n` +
                               `• 📊 Количестве ошибок\n` +
                               `• 📅 Данных табеля\n` +
-                              `• 🚀 Производительности труда\n\n` +
+                              `• 🚀 Производительности труда\n` +
+                              `• 💼 Записаться на подработки\n\n` +
+                              `${isUserAdmin ? '⚡ *Вы администратор системы*' : ''}\n\n` +
                               `📝 *Отправьте ваше ФИО* (Фамилия Имя Отчество) для начала работы.`;
         
         await ctx.reply(welcomeMessage, { parse_mode: 'Markdown' });
     } catch (error) {
         console.error('Ошибка при ответе на /start:', error);
+    }
+});
+
+// Команда /admin для супер-админа
+bot.command('admin', async (ctx) => {
+    try {
+        if (ctx.from.id !== SUPER_ADMIN_ID) {
+            await ctx.reply('❌ Недостаточно прав для выполнения этой команды.');
+            return;
+        }
+
+        const adminMenu = [
+            [
+                { text: '👥 Список админов', callback_data: 'admin_list' },
+                { text: '➕ Добавить админа', callback_data: 'admin_add' }
+            ],
+            [
+                { text: '➖ Удалить админа', callback_data: 'admin_remove' },
+                { text: '📊 Статистика', callback_data: 'admin_stats' }
+            ],
+            [
+                { text: '❌ Закрыть', callback_data: 'admin_close' }
+            ]
+        ];
+
+        await ctx.reply('👑 *ПАНЕЛЬ СУПЕР-АДМИНИСТРАТОРА*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: adminMenu }
+        });
+    } catch (error) {
+        console.error('Ошибка в команде /admin:', error);
+        await ctx.reply('❌ Ошибка при открытии панели администратора.');
     }
 });
 
@@ -281,6 +538,101 @@ function validateFIO(fio) {
 bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
 
+    // Обработка действий администратора
+    if (ctx.session.adminAction) {
+        try {
+            const userId = parseInt(ctx.message.text);
+            
+            if (isNaN(userId)) {
+                await ctx.reply('❌ Неверный формат ID. Введите числовой ID пользователя.');
+                return;
+            }
+
+            if (ctx.session.adminAction === 'add') {
+                await addAdmin(userId);
+                await ctx.reply(`✅ Пользователь ${userId} добавлен в администраторы.`);
+            } else if (ctx.session.adminAction === 'remove') {
+                if (userId === SUPER_ADMIN_ID) {
+                    await ctx.reply('❌ Нельзя удалить супер-администратора.');
+                    return;
+                }
+                await removeAdmin(userId);
+                await ctx.reply(`✅ Пользователь ${userId} удален из администраторов.`);
+            }
+
+            ctx.session.adminAction = null;
+            return;
+
+        } catch (error) {
+            await ctx.reply(`❌ Ошибка: ${error.message}`);
+            ctx.session.adminAction = null;
+            return;
+        }
+    }
+
+    // Обработка создания смены
+    if (ctx.session.creatingShift) {
+        try {
+            if (!ctx.session.shiftData.date) {
+                ctx.session.shiftData.date = ctx.message.text;
+                await ctx.reply('⏰ Теперь введите время смены (например: 14:00-22:00):');
+                return;
+            }
+            
+            if (!ctx.session.shiftData.time) {
+                ctx.session.shiftData.time = ctx.message.text;
+                await ctx.reply('🏢 Введите отдел или место работы:');
+                return;
+            }
+            
+            if (!ctx.session.shiftData.department) {
+                ctx.session.shiftData.department = ctx.message.text;
+                await ctx.reply('👥 Введите количество требуемых человек:');
+                return;
+            }
+            
+            if (!ctx.session.shiftData.requiredPeople) {
+                ctx.session.shiftData.requiredPeople = parseInt(ctx.message.text);
+                
+                const sheets = await connectToGoogleSheets();
+                const shifts = await getAvailableShifts();
+                const newId = shifts.length > 0 ? Math.max(...shifts.map(s => parseInt(s.id))) + 1 : 1;
+                
+                await sheets.spreadsheets.values.append({
+                    spreadsheetId: SPREADSHEET_ID,
+                    range: 'Подработки!A:G',
+                    valueInputOption: 'RAW',
+                    resource: {
+                        values: [[
+                            newId,
+                            ctx.session.shiftData.date,
+                            ctx.session.shiftData.time,
+                            ctx.session.shiftData.department,
+                            ctx.session.shiftData.requiredPeople,
+                            '',
+                            'active'
+                        ]]
+                    }
+                });
+                
+                ctx.session.creatingShift = false;
+                ctx.session.shiftData = {};
+                
+                await ctx.reply('✅ *Смена успешно создана!*', {
+                    parse_mode: 'Markdown'
+                });
+            }
+            
+        } catch (error) {
+            console.error('Ошибка при создании смены:', error);
+            await ctx.reply('❌ Ошибка при создании смены. Попробуйте снова.');
+            ctx.session.creatingShift = false;
+            ctx.session.shiftData = {};
+        }
+        return;
+    }
+
+    // Обычная обработка ФИО
     const fio = ctx.message.text.trim();
     console.log('Получено ФИО:', fio);
     
@@ -295,7 +647,6 @@ bot.on('text', async (ctx) => {
             return;
         }
         
-        // Проверяем наличие сотрудника в таблицах
         const employeeExists = await checkEmployeeExists(fio);
         if (!employeeExists) {
             const notFoundMessage = `🔍 *Информация не найдена*\n\n` +
@@ -315,11 +666,14 @@ bot.on('text', async (ctx) => {
         const shortFio = `${lastName.slice(0, 3)}${firstName.slice(0, 3)}${patronymic.slice(0, 3)}`;
         const userId = ctx.from.id;
         
+        const isUserAdmin = await isAdmin(userId);
         const menuMessage = `👤 *${fio}*\n\n` +
                            `📊 *Выберите раздел для просмотра статистики:*\n\n` +
                            `▫️ *📊 Ошибки* - количество рабочих ошибок\n` +
                            `▫️ *📅 Табель* - информация о сменах\n` +
-                           `▫️ *🚀 Производительность*`;
+                           `▫️ *🚀 Производительность* - показатели эффективности\n` +
+                           `▫️ *💼 Подработки* - запись на дополнительные смены\n\n` +
+                           `${isUserAdmin ? '⚡ *Режим администратора активирован*' : ''}`;
         
         await ctx.reply(menuMessage, {
             parse_mode: 'Markdown',
@@ -518,8 +872,152 @@ async function getShiftData(fio) {
     }
 }
 
+// Обработчики для панели супер-администратора
+bot.action('admin_list', async (ctx) => {
+    try {
+        if (ctx.from.id !== SUPER_ADMIN_ID) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        const admins = await getAdmins();
+        let message = '👥 *СПИСОК АДМИНИСТРАТОРОВ:*\n\n';
+        message += `👑 Супер-админ: ${SUPER_ADMIN_ID} (Вы)\n\n`;
+        
+        if (admins.length > 1) {
+            admins.filter(id => id !== SUPER_ADMIN_ID).forEach((adminId, index) => {
+                message += `${index + 1}. ${adminId}\n`;
+            });
+        } else {
+            message += '📭 Других администраторов нет';
+        }
+
+        await ctx.editMessageText(message, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '↩️ Назад', callback_data: 'admin_back' }
+                ]]
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка при получении списка админов:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке списка');
+    }
+});
+
+bot.action('admin_add', async (ctx) => {
+    try {
+        if (ctx.from.id !== SUPER_ADMIN_ID) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        ctx.session.adminAction = 'add';
+        await ctx.editMessageText('➕ *ДОБАВЛЕНИЕ АДМИНИСТРАТОРА*\n\nВведите ID пользователя:', {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '❌ Отмена', callback_data: 'admin_back' }
+                ]]
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка при добавлении админа:', error);
+        await ctx.answerCbQuery('❌ Ошибка');
+    }
+});
+
+bot.action('admin_remove', async (ctx) => {
+    try {
+        if (ctx.from.id !== SUPER_ADMIN_ID) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        ctx.session.adminAction = 'remove';
+        await ctx.editMessageText('➖ *УДАЛЕНИЕ АДМИНИСТРАТОРА*\n\nВведите ID пользователя:', {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '❌ Отмена', callback_data: 'admin_back' }
+                ]]
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка при удалении админа:', error);
+        await ctx.answerCbQuery('❌ Ошибка');
+    }
+});
+
+bot.action('admin_stats', async (ctx) => {
+    try {
+        if (ctx.from.id !== SUPER_ADMIN_ID) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        const admins = await getAdmins();
+        const shifts = await getAvailableShifts();
+        
+        const message = `📊 *СТАТИСТИКА СИСТЕМЫ:*\n\n` +
+                       `👥 Администраторов: ${admins.length}\n` +
+                       `📅 Активных смен: ${shifts.length}\n` +
+                       `👤 Всего записей на смены: ${shifts.reduce((acc, shift) => acc + shift.signedUp.length, 0)}\n\n` +
+                       `🆔 Ваш ID: ${SUPER_ADMIN_ID}`;
+
+        await ctx.editMessageText(message, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '↩️ Назад', callback_data: 'admin_back' }
+                ]]
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка при получении статистики:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке статистики');
+    }
+});
+
+bot.action('admin_close', async (ctx) => {
+    await ctx.deleteMessage();
+    await ctx.answerCbQuery('Панель закрыта');
+});
+
+bot.action('admin_back', async (ctx) => {
+    try {
+        if (ctx.from.id !== SUPER_ADMIN_ID) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        const adminMenu = [
+            [
+                { text: '👥 Список админов', callback_data: 'admin_list' },
+                { text: '➕ Добавить админа', callback_data: 'admin_add' }
+            ],
+            [
+                { text: '➖ Удалить админа', callback_data: 'admin_remove' },
+                { text: '📊 Статистика', callback_data: 'admin_stats' }
+            ],
+            [
+                { text: '❌ Закрыть', callback_data: 'admin_close' }
+            ]
+        ];
+
+        await ctx.editMessageText('👑 *ПАНЕЛЬ СУПЕР-АДМИНИСТРАТОРА*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: adminMenu }
+        });
+    } catch (error) {
+        console.error('Ошибка при возврате в меню админа:', error);
+        await ctx.answerCbQuery('❌ Ошибка');
+    }
+});
+
 // Обработчик callback-запросов
-bot.action(/^(e|p|t|back)_/, async (ctx) => {
+bot.action(/^(e|p|t|work|back)_/, async (ctx) => {
     try {
         const callbackData = ctx.callbackQuery.data;
         const [action, shortFio, userId] = callbackData.split('_');
@@ -639,6 +1137,39 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
                     });
                 }
                 break;
+
+            case 'work':
+                try {
+                    const isUserAdmin = await isAdmin(userId);
+                    const workMenu = [
+                        [
+                            { text: '📋 Доступные смены', callback_data: `shifts_list_${shortFio}_${userId}` },
+                            { text: '📝 Мои заявки', callback_data: `my_applications_${shortFio}_${userId}` }
+                        ]
+                    ];
+
+                    if (isUserAdmin) {
+                        workMenu.push([
+                            { text: '👨‍💼 Все заявки', callback_data: `admin_applications_${shortFio}_${userId}` },
+                            { text: '➕ Создать смену', callback_data: `create_shift_${shortFio}_${userId}` }
+                        ]);
+                    }
+
+                    workMenu.push([
+                        { text: '↩️ Назад в меню', callback_data: `back_${shortFio}_${userId}` }
+                    ]);
+
+                    await ctx.editMessageText(`💼 *СИСТЕМА ПОДРАБОТОК*\n\n👤 Сотрудник: ${fullFio}${isUserAdmin ? '\n⚡ Режим администратора' : ''}`, {
+                        parse_mode: 'Markdown',
+                        reply_markup: { inline_keyboard: workMenu }
+                    });
+                } catch (error) {
+                    console.error('Ошибка при открытии меню подработок:', error);
+                    await ctx.editMessageText('❌ Не удалось открыть меню подработок.', {
+                        reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+                    });
+                }
+                break;
         }
         
         await ctx.answerCbQuery();
@@ -646,6 +1177,276 @@ bot.action(/^(e|p|t|back)_/, async (ctx) => {
     } catch (error) {
         console.error('Ошибка в callback:', error);
         await ctx.answerCbQuery();
+    }
+});
+
+// Обработчик для подработок - список смен
+bot.action(/^shifts_list_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const availableShifts = await getAvailableShifts();
+        
+        if (availableShifts.length === 0) {
+            await ctx.editMessageText('📭 *На данный момент нет доступных смен для подработки.*', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]] }
+            });
+            return;
+        }
+
+        const shiftsKeyboard = availableShifts.map(shift => [
+            { 
+                text: `📅 ${shift.date} ${shift.time} (${shift.department})`, 
+                callback_data: `shift_detail_${shift.id}_${shortFio}_${userId}`
+            }
+        ]);
+
+        shiftsKeyboard.push([{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]);
+
+        await ctx.editMessageText('📋 *ДОСТУПНЫЕ СМЕНЫ ДЛЯ ПОДРАБОТКИ:*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: shiftsKeyboard }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении списка смен:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке смен');
+    }
+});
+
+// Обработчик для деталей смены
+bot.action(/^shift_detail_/, async (ctx) => {
+    try {
+        const [action, shiftId, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const shift = await getShiftById(shiftId);
+        if (!shift) {
+            await ctx.answerCbQuery('❌ Смена не найдена');
+            return;
+        }
+
+        const shiftInfo = `📅 *ДЕТАЛИ СМЕНЫ*\n\n` +
+                         `🗓️ *Дата:* ${shift.date}\n` +
+                         `⏰ *Время:* ${shift.time}\n` +
+                         `🏢 *Отдел:* ${shift.department}\n` +
+                         `👥 *Требуется человек:* ${shift.requiredPeople}\n` +
+                         `✅ *Записалось:* ${shift.signedUp.length}/${shift.requiredPeople}\n\n`;
+
+        const detailKeyboard = [
+            [
+                { 
+                    text: '📝 Записаться на смену', 
+                    callback_data: `signup_shift_${shiftId}_${shortFio}_${userId}`
+                }
+            ],
+            [
+                { text: '↩️ К списку смен', callback_data: `shifts_list_${shortFio}_${userId}` }
+            ]
+        ];
+
+        await ctx.editMessageText(shiftInfo, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: detailKeyboard }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении деталей смены:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке деталей смены');
+    }
+});
+
+// Обработчик для записи на смену
+bot.action(/^signup_shift_/, async (ctx) => {
+    try {
+        const [action, shiftId, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const success = await signUpForShift(userId, fullFio, shiftId);
+        
+        if (success) {
+            await ctx.answerCbQuery('✅ Вы успешно записаны на смену!');
+            
+            await ctx.editMessageText('✅ *ВЫ УСПЕШНО ЗАПИСАНЫ НА СМЕНУ!*\n\nОжидайте подтверждения от администратора.', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: createBackButton(shortFio, userId) }
+            });
+        }
+        
+    } catch (error) {
+        console.error('Ошибка при записи на смену:', error);
+        await ctx.answerCbQuery(`❌ ${error.message}`);
+    }
+});
+
+// Обработчик для моих заявок
+bot.action(/^my_applications_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        const fullFio = ctx.session?.fullFio;
+
+        const applications = await getUserApplications(fullFio);
+
+        if (applications.length === 0) {
+            await ctx.editMessageText('📭 *У вас нет активных заявок на подработку.*', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]] }
+            });
+            return;
+        }
+
+        let message = '📋 *МОИ ЗАЯВКИ НА ПОДРАБОТКУ:*\n\n';
+        
+        applications.forEach((app, index) => {
+            message += `${index + 1}. ${app.date} ${app.time} - ${app.department}\n`;
+            message += `   👥 ${app.signedUp.length}/${app.requiredPeople} человек\n`;
+            message += `   📝 Статус: активна\n\n`;
+        });
+
+        await ctx.editMessageText(message, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]] }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении заявок:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке заявок');
+    }
+});
+
+// Обработчик для админских заявок
+bot.action(/^admin_applications_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        
+        if (!await isAdmin(userId)) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        const applications = await getAllApplications();
+        
+        if (applications.length === 0) {
+            await ctx.editMessageText('📭 *Нет активных заявок на подработку.*', {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }]] }
+            });
+            return;
+        }
+
+        let message = '👨‍💼 *ВСЕ ЗАЯВКИ НА ПОДРАБОТКУ:*\n\n';
+        
+        applications.forEach((app, index) => {
+            message += `${index + 1}. ${app.userName}\n`;
+            message += `   📅 ${app.date} ${app.time}\n`;
+            message += `   🏢 ${app.department}\n`;
+            message += `   📝 Статус: ${app.status === 'pending' ? '⏳ Ожидает' : app.status === 'approved' ? '✅ Одобрена' : '❌ Отклонена'}\n\n`;
+        });
+
+        const adminKeyboard = [
+            [
+                { text: '✅ Одобрить все', callback_data: `approve_all_${shortFio}_${userId}` },
+                { text: '❌ Отклонить все', callback_data: `reject_all_${shortFio}_${userId}` }
+            ],
+            [
+                { text: '↩️ Назад', callback_data: `work_${shortFio}_${userId}` }
+            ]
+        ];
+
+        await ctx.editMessageText(message, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: adminKeyboard }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при получении заявок:', error);
+        await ctx.answerCbQuery('❌ Ошибка при загрузке заявок');
+    }
+});
+
+// Обработчик для создания смены
+bot.action(/^create_shift_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        
+        if (!await isAdmin(userId)) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        ctx.session.creatingShift = true;
+        ctx.session.shiftData = {};
+        
+        await ctx.editMessageText('📝 *СОЗДАНИЕ НОВОЙ СМЕНЫ*\n\nВведите дату смены в формате ДД.ММ.ГГГГ:', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: `work_${shortFio}_${userId}` }]] }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при создании смены:', error);
+        await ctx.answerCbQuery('❌ Ошибка при создании смены');
+    }
+});
+
+// Обработчик для одобрения всех заявок
+bot.action(/^approve_all_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        
+        if (!await isAdmin(userId)) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        const applications = await getAllApplications();
+        
+        for (const app of applications) {
+            if (app.status === 'pending') {
+                await updateApplicationStatus(app.shiftId, app.userName, 'approved');
+            }
+        }
+
+        await ctx.answerCbQuery('✅ Все заявки одобрены!');
+        await ctx.editMessageText('✅ *Все заявки успешно одобрены!*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `admin_applications_${shortFio}_${userId}` }]] }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при одобрении заявок:', error);
+        await ctx.answerCbQuery('❌ Ошибка при одобрении заявок');
+    }
+});
+
+// Обработчик для отклонения всех заявок
+bot.action(/^reject_all_/, async (ctx) => {
+    try {
+        const [action, shortFio, userId] = ctx.callbackQuery.data.split('_');
+        
+        if (!await isAdmin(userId)) {
+            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            return;
+        }
+
+        const applications = await getAllApplications();
+        
+        for (const app of applications) {
+            if (app.status === 'pending') {
+                await updateApplicationStatus(app.shiftId, app.userName, 'rejected');
+            }
+        }
+
+        await ctx.answerCbQuery('❌ Все заявки отклонены!');
+        await ctx.editMessageText('❌ *Все заявки отклонены!*', {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{ text: '↩️ Назад', callback_data: `admin_applications_${shortFio}_${userId}` }]] }
+        });
+        
+    } catch (error) {
+        console.error('Ошибка при отклонении заявок:', error);
+        await ctx.answerCbQuery('❌ Ошибка при отклонении заявок');
     }
 });
 
@@ -715,8 +1516,8 @@ bot.action(/^month_/, async (ctx) => {
                        `📈 *ОБЩАЯ СТАТИСТИКА*\n` +
                        `├ Дней с данными: ${productivityData.daysWithData}\n` +
                        `├ Средний отбор/день: ${productivityData.avgSelectionPerDay} ед.\n` +
-                       `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n` +
-                       '';
+                       `└ Среднее размещение/день: ${productivityData.avgPlacementPerDay} ед.\n\n`;
+        
         const detailKeyboard = [
             [{ text: '📋 Детализировать по дням', callback_data: `detail_${month}_${year}_${shortFio}_${userId}` }],
             [{ text: '↩️ Выбрать другой месяц', callback_data: `p_${shortFio}_${userId}` }],
@@ -764,7 +1565,7 @@ bot.action(/^detail_/, async (ctx) => {
         const monthNames = ['Январь', 'Февраль', 'Март', 'Апель', 'Май', 'Июнь', 
                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
-        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯМ*\n\n`;
+        let message = `📋 *ДЕТАЛИЗАЦИЯ ПО ДНЯм:*\n\n`;
         message += `👤 *Сотрудник:* ${fullFio}\n`;
         message += `📅 *Период:* ${monthNames[month]} ${year}\n\n`;
         message += `*Ежедневная статистика:*\n\n`;
@@ -840,7 +1641,7 @@ async function startBot() {
         if (process.env.RENDER) {
             console.log('🌐 Запуск в режиме webhook...');
             
-            app.use(bot.webhookCallback('/telegram-webhook'));
+                        app.use(bot.webhookCallback('/telegram-webhook'));
             
             app.listen(PORT, '0.0.0.0', () => {
                 console.log(`✅ Сервер запущен на порту ${PORT}`);
@@ -863,6 +1664,7 @@ async function startBot() {
         }
         
         console.log('✅ Бот успешно запущен!');
+        console.log(`👑 Супер-администратор: ${SUPER_ADMIN_ID}`);
         
     } catch (error) {
         console.error('❌ Ошибка запуска бота:', error);
