@@ -219,18 +219,31 @@ async function getAvailableShifts() {
         const rows = result.data.values || [];
         if (rows.length < 2) return [];
         
+        // Получаем заголовки для отладки
         const headers = rows[0];
-        return rows.slice(1).filter(row => row.length >= 9).map((row, index) => ({
-            id: row[0] || (index + 1).toString(),
-            date: row[1],
-            time: row[2],
-            department: row[3],
-            requiredPeople: parseInt(row[4] || 0),
-            signedUp: row[5] ? row[5].split(',').filter(Boolean) : [],
-            status: row[6],
-            pendingApproval: row[7] ? row[7].split(',').filter(Boolean) : [],
-            approved: row[8] ? row[8].split(',').filter(Boolean) : []
-        }));
+        console.log('Заголовки таблицы Подработки:', headers);
+        
+        return rows.slice(1).filter(row => {
+            // Проверяем, что строка имеет достаточно данных
+            if (row.length < 7) return false;
+            
+            // Проверяем статус - если нет статуса, считаем активной
+            const status = row[6] || 'active';
+            return status === 'active';
+        }).map((row, index) => {
+            // Заполняем недостающие данные значениями по умолчанию
+            return {
+                id: row[0] || (index + 1).toString(),
+                date: row[1] || 'Не указана',
+                time: row[2] || 'Не указано',
+                department: row[3] || 'Не указан',
+                requiredPeople: parseInt(row[4] || 0),
+                signedUp: row[5] ? row[5].split(',').filter(Boolean) : [],
+                status: row[6] || 'active',
+                pendingApproval: row[7] ? row[7].split(',').filter(Boolean) : [],
+                approved: row[8] ? row[8].split(',').filter(Boolean) : []
+            };
+        });
     } catch (error) {
         console.error('Ошибка при получении смен:', error);
         return [];
@@ -260,24 +273,24 @@ async function updateShiftInSheet(shift) {
         }
         
         // Обновляем данные смены
-        await googleSheetsClient.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `Подработки!A${rowIndex + 1}:I${rowIndex + 1}`,
-            valueInputOption: 'RAW',
-            resource: {
-                values: [[
-                    shift.id,
-                    shift.date,
-                    shift.time,
-                    shift.department,
-                    shift.requiredPeople,
-                    shift.signedUp.join(','),
-                    shift.status,
-                    shift.pendingApproval.join(','),
-                    shift.approved.join(',')
-                ]]
-            }
-        });
+        await googleSheetsClient.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Подработки!A:I',
+      valueInputOption: 'RAW',
+      resource: {
+        values: [[
+            newId,
+            shiftData.date,
+            shiftData.time,
+            shiftData.department,
+            shiftData.requiredPeople,
+            '', // signedUp
+            'active', // status - ДОБАВЛЕНО!
+            '', // pendingApproval
+            ''  // approved
+        ]]
+    }
+});
         
         return true;
     } catch (error) {
@@ -1400,7 +1413,9 @@ bot.action('work_shifts_list', async (ctx) => {
     try {
         const fullFio = ctx.session.userFio;
 
+        // Принудительно обновляем список смен
         const availableShifts = await getAvailableShifts();
+        ctx.session.availableShifts = availableShifts;
         
         if (availableShifts.length === 0) {
             await ctx.editMessageText('📭 *На данный момент нет доступных смен для подработки.*', {
@@ -1418,9 +1433,6 @@ bot.action('work_shifts_list', async (ctx) => {
         ]);
 
         shiftsKeyboard.push([{ text: '↩️ Назад', callback_data: 'menu_show_work' }]);
-
-        // Сохраняем данные в сессии
-        ctx.session.availableShifts = availableShifts;
 
         await ctx.editMessageText('📋 *ДОСТУПНЫЕ СМЕНЫ ДЛЯ ПОДРАБОТКИ:*', {
             parse_mode: 'Markdown',
