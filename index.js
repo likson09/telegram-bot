@@ -629,6 +629,68 @@ function extractUserName(userString) {
     return userString.split('|')[0];
 }
 
+// Добавьте вспомогательные функции форматирования
+function formatDateShort(dateString) {
+    if (!dateString) return '??.??';
+    try {
+        const parts = dateString.split('.');
+        if (parts.length === 3) {
+            return `${parts[0]}.${parts[1]}`; // ДД.ММ
+        }
+        return dateString.slice(0, 5);
+    } catch {
+        return dateString.slice(0, 5);
+    }
+}
+
+function formatTime(timeString) {
+    if (!timeString) return '??:??';
+    return timeString.split('-')[0]; // Берем только время начала
+}
+
+function formatDepartment(dept) {
+    const shortNames = {
+        'склад': 'СКЛ',
+        'торговый зал': 'ТЗ',
+        'касса': 'КС',
+        'кладовая': 'КЛ',
+        'приемка': 'ПР',
+        'выдача': 'ВД'
+    };
+    
+    const lowerDept = dept.toLowerCase();
+    return shortNames[lowerDept] || dept.slice(0, 3).toUpperCase();
+}
+
+// Умное форматирование текста для телеграма
+function smartText(text, maxLength = 20) {
+    if (!text) return '';
+    
+    // Заменяем длинные слова на сокращения
+    const replacements = {
+        'подработк': 'подр-ка',
+        'администратор': 'админ',
+        'подтвержден': 'подтв.',
+        'ожидает': 'ждет',
+        'статистика': 'стат-ка',
+        'производительность': 'пр-сть',
+        'управление': 'упр-ние',
+        'количество': 'кол-во'
+    };
+    
+    let result = text;
+    for (const [long, short] of Object.entries(replacements)) {
+        result = result.replace(new RegExp(long, 'gi'), short);
+    }
+    
+    // Обрезаем если все еще слишком длинное
+    if (result.length > maxLength) {
+        return result.slice(0, maxLength - 1) + '…';
+    }
+    
+    return result;
+}
+
 function extractUserId(userString) {
     const parts = userString.split('|');
     return parts.length > 1 ? parseInt(parts[1]) : null;
@@ -924,6 +986,22 @@ async function safeEditMessage(ctx, text, markup = null) {
     }
 }
 
+// Функция для сокращения ФИО
+function truncateName(fullName) {
+    if (!fullName) return '???';
+    
+    const parts = fullName.split(' ');
+    if (parts.length >= 3) {
+        // Иванов И.И.
+        return `${parts[0]} ${parts[1][0]}.${parts[2][0]}.`;
+    }
+    if (parts.length === 2) {
+        // Иванов И.
+        return `${parts[0]} ${parts[1][0]}.`;
+    }
+    return fullName.slice(0, 10); // Обрезаем если слишком длинное
+}
+
 // Функция для создания красивого главного меню
 function createMainMenu(isAdmin = false) {
     const menu = [
@@ -939,11 +1017,11 @@ function createMainMenu(isAdmin = false) {
         ],
         [
             { 
-                text: '🚀 Производительность', 
+                text: '🚀 Операции', 
                 callback_data: 'menu_show_productivity'
             },
             { 
-                text: '💼 Подработки', 
+                text: '💼 Подработка', 
                 callback_data: 'menu_show_work'
             }
         ]
@@ -952,7 +1030,7 @@ function createMainMenu(isAdmin = false) {
     if (isAdmin) {
         menu.push([
             { 
-                text: '👑 Админ-панель', 
+                text: '👑 Админ', 
                 callback_data: 'menu_admin_panel'
             }
         ]);
@@ -960,7 +1038,7 @@ function createMainMenu(isAdmin = false) {
 
     menu.push([
         { 
-            text: '🔄 Сменить ФИО', 
+            text: '🔄 ФИО', 
             callback_data: 'menu_change_fio'
         }
     ]);
@@ -1141,66 +1219,67 @@ bot.command('debug_table', async (ctx) => {
     }
 });
 
-// Обработчики для админ-панели
+// Обновите меню управления сменами
 bot.action('admin_shifts', async (ctx) => {
     try {
         if (!await isAdmin(ctx.from.id)) {
-            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            await ctx.answerCbQuery('❌ Нет прав!');
             return;
         }
 
         const shiftsMenu = [
             [
-                { text: '📋 Все смены', callback_data: 'admin_all_shifts' },
-                { text: '✅ Активные смены', callback_data: 'admin_active_shifts' }
+                { text: '📋 Все', callback_data: 'admin_all_shifts' },
+                { text: '✅ Активные', callback_data: 'admin_active_shifts' }
             ],
             [
-                { text: '📊 Статистика смен', callback_data: 'admin_shifts_stats' }
+                { text: '📊 Стат-ка', callback_data: 'admin_shifts_stats' }
             ],
             [
-                { text: '↩️ Назад в админ-панель', callback_data: 'menu_admin_panel' }
+                { text: '↩️ Назад', callback_data: 'menu_admin_panel' }
             ]
         ];
 
-        await ctx.editMessageText('📅 *УПРАВЛЕНИЕ СМЕНАМИ*\n\nВыберите действие:', {
+        await ctx.editMessageText('📅 *УПРАВЛЕНИЕ СМЕНАМИ*', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: shiftsMenu }
         });
 
     } catch (error) {
         console.error('Ошибка при открытии управления сменами:', error);
-        await ctx.answerCbQuery('❌ Ошибка при загрузке');
+        await ctx.answerCbQuery('❌ Ошибка');
     }
 });
 
+// Обновите меню управления админами
 bot.action('admin_manage', async (ctx) => {
     try {
         if (!await isAdmin(ctx.from.id)) {
-            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            await ctx.answerCbQuery('❌ Нет прав!');
             return;
         }
 
         const manageMenu = [
             [
-                { text: '👥 Список админов', callback_data: 'admin_list' },
-                { text: '➕ Добавить админа', callback_data: 'admin_add' }
+                { text: '👥 Список', callback_data: 'admin_list' },
+                { text: '➕ Добавить', callback_data: 'admin_add' }
             ],
             [
-                { text: '➖ Удалить админа', callback_data: 'admin_remove' }
+                { text: '➖ Удалить', callback_data: 'admin_remove' }
             ],
             [
-                { text: '↩️ Назад в админ-панель', callback_data: 'menu_admin_panel' }
+                { text: '↩️ Назад', callback_data: 'menu_admin_panel' }
             ]
         ];
 
-        await ctx.editMessageText('👥 *УПРАВЛЕНИЕ АДМИНИСТРАТОРАМИ*\n\nВыберите действие:', {
+        await ctx.editMessageText('👥 *УПРАВЛЕНИЕ АДМИНАМИ*', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: manageMenu }
         });
 
     } catch (error) {
         console.error('Ошибка при открытии управления админами:', error);
-        await ctx.answerCbQuery('❌ Ошибка при загрузке');
+        await ctx.answerCbQuery('❌ Ошибка');
     }
 });
 
@@ -1400,33 +1479,33 @@ bot.action('admin_active_shifts', async (ctx) => {
     }
 });
 
-// Обработчик для меню подработок
+// Обновите меню подработок
 bot.action('menu_show_work', async (ctx) => {
     try {
         const fullFio = ctx.session.userFio;
 
         if (!fullFio) {
-            await ctx.answerCbQuery('❌ ФИО не найдено. Отправьте ФИО снова.');
+            await ctx.answerCbQuery('❌ ФИО не найдено');
             return;
         }
 
         const workMenu = [
             [
-                { text: '📋 Доступные смены', callback_data: 'work_shifts_list' },
+                { text: '📋 Смены', callback_data: 'work_shifts_list' },
                 { text: '📝 Мои заявки', callback_data: 'work_my_applications' }
             ],
             [
-                { text: '↩️ Назад в меню', callback_data: 'menu_back_main' }
+                { text: '↩️ Назад', callback_data: 'menu_back_main' }
             ]
         ];
 
-        await ctx.editMessageText(`💼 *СИСТЕМА ПОДРАБОТОК*\n\n👤 Сотрудник: ${fullFio}`, {
+        await ctx.editMessageText(`💼 *ПОДРАБОТКИ*\n\n👤 ${fullFio}`, {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: workMenu }
         });
     } catch (error) {
         console.error('Ошибка при открытии меню подработок:', error);
-        await ctx.editMessageText('❌ Не удалось открыть меню подработок.', {
+        await ctx.editMessageText('❌ Ошибка открытия меню', {
             reply_markup: { inline_keyboard: createBackButton() }
         });
     }
@@ -1850,37 +1929,38 @@ async function getShiftData(fio) {
     }
 }
 
-// Обработчики для админ-панели
+// Обновите админ-панель
 bot.action('menu_admin_panel', async (ctx) => {
     try {
         if (!await isAdmin(ctx.from.id)) {
-            await ctx.answerCbQuery('❌ Недостаточно прав!');
+            await ctx.answerCbQuery('❌ Нет прав!');
             return;
         }
 
         const adminMenu = [
             [
-                { text: '📋 Заявки на подработку', callback_data: 'admin_applications' },
-                { text: '📅 Управление сменами', callback_data: 'admin_shifts' }
+                { text: '📋 Заявки', callback_data: 'admin_applications' },
+                { text: '📅 Смены', callback_data: 'admin_shifts' }
             ],
             [
-                { text: '👥 Управление админами', callback_data: 'admin_manage' },
-                { text: '📊 Статистика', callback_data: 'admin_stats' }
+                { text: '👥 Админы', callback_data: 'admin_manage' },
+                { text: '📊 Стат-ка', callback_data: 'admin_stats' }
             ],
             [
-                { text: '↩️ Главное меню', callback_data: 'menu_back_main' }
+                { text: '↩️ Назад', callback_data: 'menu_back_main' }
             ]
         ];
 
-        await ctx.editMessageText('👑 *ПАНЕЛЬ АДМИНИСТРАТОРА*', {
+        await ctx.editMessageText('👑 *АДМИН ПАНЕЛЬ*', {
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: adminMenu }
         });
     } catch (error) {
         console.error('Ошибка при открытии админ-панели:', error);
-        await ctx.answerCbQuery('❌ Ошибка при открытии панели');
+        await ctx.answerCbQuery('❌ Ошибка');
     }
 });
+
 
 // Меню управления заявками администратора
 bot.action('admin_applications', async (ctx) => {
@@ -1904,11 +1984,11 @@ bot.action('admin_applications', async (ctx) => {
         ctx.session.pendingApplications = applications;
 
         const applicationsKeyboard = applications.map((app, index) => [
-            { 
-                text: `📝 ${app.userName} - ${app.date} ${app.time}`, 
-                callback_data: `admin_app_detail_${index}`
-            }
-        ]);
+    { 
+        text: `📝 ${truncateName(app.userName)} - ${formatDateShort(app.date)}`, 
+        callback_data: `admin_app_detail_${index}`
+    }
+]);
 
         applicationsKeyboard.push(createBackButton('menu_admin_panel')[0]);
 
@@ -2128,17 +2208,17 @@ bot.action(/^menu_/, async (ctx) => {
                     
                     for (let i = 0; i < 6; i++) {
                         const monthDate = new Date(currentYear, currentMonth - i, 1);
-                        const monthName = monthNames[monthDate.getMonth()];
-                        const year = monthDate.getFullYear();
+                        const monthName = monthNames[monthDate.getMonth()].slice(0, 3); // Сокращаем до 3 букв
+                        const year = monthDate.getFullYear().toString().slice(-2); // Берем последние 2 цифры года
                         const monthIndex = monthDate.getMonth();
-                        
+    
                         monthKeyboard.push([
-                            { 
-                                text: `📅 ${monthName} ${year}`, 
-                                callback_data: `month_${monthIndex}_${year}`
-                            }
-                        ]);
-                    }
+                             { 
+                                     text: `📅 ${monthName} ${year}`, 
+                                     callback_data: `month_${monthIndex}_${monthDate.getFullYear()}`
+                             }
+                           ]);
+                         }
                     
                     monthKeyboard.push([{ 
                         text: '↩️ Назад в меню', 
@@ -2222,11 +2302,11 @@ bot.action('work_shifts_list', async (ctx) => {
         }
 
         const shiftsKeyboard = availableShifts.map(shift => [
-            { 
-                text: `📅 ${shift.date} ${shift.time} (${shift.department})`, 
-                callback_data: `shift_detail_${shift.id}`
-            }
-        ]);
+    { 
+        text: `📅 ${formatDateShort(shift.date)} ${formatTime(shift.time)}`, 
+        callback_data: `shift_detail_${shift.id}`
+    }
+]);
 
         shiftsKeyboard.push([{ text: '↩️ Назад', callback_data: 'menu_show_work' }]);
 
@@ -2323,24 +2403,25 @@ bot.action(/^shift_detail_/, async (ctx) => {
             actionMessage = `✅ *Есть свободные места:* ${availableSlots} из ${shift.requiredPeople}`;
         }
 
-        const detailKeyboard = [];
-        
-        // Добавляем кнопку записи только если есть места, пользователь еще не записан И не подтвержден
-        if (availableSlots > 0 && 
-            !shift.approved.includes(userFio) && 
-            !shift.pendingApproval.includes(userFio) && 
-            !shift.signedUp.includes(userFio)) {
-            detailKeyboard.push([
-                { 
-                    text: '📝 Подать заявку', 
-                    callback_data: `shift_signup_${shiftId}`
-                }
-            ]);
+        // В shift_detail обновите кнопки
+const detailKeyboard = [];
+
+// Добавляем кнопку записи только если есть места
+if (availableSlots > 0 && 
+    !shift.approved.includes(userFio) && 
+    !shift.pendingApproval.includes(userFio) && 
+    !shift.signedUp.includes(userFio)) {
+    detailKeyboard.push([
+        { 
+            text: '📝 Записаться', 
+            callback_data: `shift_signup_${shiftId}`
         }
-        
-        detailKeyboard.push([
-            { text: '↩️ К списку смен', callback_data: 'work_shifts_list' }
-        ]);
+    ]);
+}
+
+detailKeyboard.push([
+    { text: '↩️ Назад', callback_data: 'work_shifts_list' }
+]);
 
         const fullMessage = shiftInfo + statusMessage + actionMessage;
 
