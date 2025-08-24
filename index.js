@@ -2582,7 +2582,7 @@ bot.action(/^month_/, async (ctx) => {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для месяца:', callbackData);
         
-        // Правильно извлекаем month и year
+        // Формат: month_7_2025
         const parts = callbackData.split('_');
         console.log('📊 Parts:', parts);
         
@@ -2592,8 +2592,8 @@ bot.action(/^month_/, async (ctx) => {
             return;
         }
         
-        const month = parseInt(parts[1]); // БЫЛО: parts[1] - ПРАВИЛЬНО
-        const year = parseInt(parts[2]);  // БЫЛО: parts[2] - ПРАВИЛЬНО
+        const month = parseInt(parts[1]); // 7
+        const year = parseInt(parts[2]);  // 2025
         
         console.log(`📅 Выбран месяц: ${month}, год: ${year}`);
         
@@ -2681,19 +2681,19 @@ bot.action(/^month_detail_/, async (ctx) => {
         const callbackData = ctx.callbackQuery.data;
         console.log('📨 Получен callback_data для детализации:', callbackData);
         
-        // ИСПРАВЛЕНИЕ: Правильно извлекаем month и year - позиции 1 и 2
+        // Формат: month_detail_7_2025 - значит parts[2] и parts[3]
         const parts = callbackData.split('_');
         console.log('📊 Parts:', parts);
         
-        if (parts.length < 3) {
+        if (parts.length < 4) {
             console.log('❌ Неверный формат callback_data');
             await ctx.answerCbQuery('Ошибка формата');
             return;
         }
         
-        // ИСПРАВЛЕНИЕ: parts[1] и parts[2] вместо parts[2] и parts[3]
-        const month = parseInt(parts[1]);
-        const year = parseInt(parts[2]);
+        // ИСПРАВЛЕНИЕ: parts[2] и parts[3] для формата month_detail_7_2025
+        const month = parseInt(parts[2]); // 7
+        const year = parseInt(parts[3]);  // 2025
         
         console.log(`📊 Детализация для месяца: ${month}, года: ${year}`);
         
