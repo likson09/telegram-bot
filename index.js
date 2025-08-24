@@ -215,7 +215,7 @@ async function getAvailableShifts() {
         
         const result = await googleSheetsClient.spreadsheets.values.get({
             spreadsheetId: SPREADSHEET_ID,
-            range: 'Подработки!A:G'
+            range: 'Подработки!A:I'
         });
         
         const rows = result.data.values || [];
@@ -397,7 +397,7 @@ async function debugShiftTableStructure() {
         
         const result = await googleSheetsClient.spreadsheets.values.get({
             spreadsheetId: SPREADSHEET_ID,
-            range: 'Подработки!A:G'
+            range: 'Подработки!A:I'
         });
         
         const rows = result.data.values || [];
@@ -486,7 +486,7 @@ async function debugTableStructure() {
     try {
         const result = await googleSheetsClient.spreadsheets.values.get({
             spreadsheetId: SPREADSHEET_ID,
-            range: 'Подработки!A:G'
+            range: 'Подработки!A:I'
         });
         
         console.log('=== СТРУКТУРА ТАБЛИЦЫ ПОДРАБОТОК ===');
